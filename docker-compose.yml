@@ -1,0 +1,27 @@
+services:
+  node1:
+    build: .
+    #image: ubuntu:20.04
+    command: bash -c "while true; do echo -e \"node 1 is running\"; sleep 2; done"
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./:/project
+    networks:
+      - common-net
+
+  node2:
+    build: .
+    #image: ubuntu:20.04
+    command: bash -c "while true; do echo -e \"node 2 is running\"; sleep 2; done"
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./:/project
+    networks:
+      - common-net
+
+networks:
+  common-net:
+    driver: bridge
+
