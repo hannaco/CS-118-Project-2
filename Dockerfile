@@ -12,4 +12,5 @@ RUN apt-get install --yes --no-install-recommends \
     git-all \
     iproute2 \
     iputils-ping \
-    net-tools
+    net-tools \
+    netcat
