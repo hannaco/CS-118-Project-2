@@ -13,4 +13,5 @@ RUN apt-get install --yes --no-install-recommends \
     iproute2 \
     iputils-ping \
     net-tools \
-    netcat
+    netcat \
+    tcpdump
