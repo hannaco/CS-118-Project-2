@@ -33,8 +33,6 @@ To dissect tcpdump-recorded file, you can use `-r <pcapfile>` option. For exampl
 
 ## TODO
 
-    ###########################################################
-    ##                                                       ##
-    ## REPLACE CONTENT OF THIS FILE WITH YOUR PROJECT REPORT ##
-    ##                                                       ##
-    ###########################################################
+https://www.geeksforgeeks.org/udp-server-client-implementation-c/
+https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
+
