@@ -1,13 +1,22 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>  //Header file for sleep(). man 3 sleep for details.
+#include <unistd.h> 
 #include <pthread.h>
 #include <errno.h>
 #include <ctype.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <time.h>
+#include <signal.h>
+
+int sockfd;
+
+void sighandler() {
+  close(sockfd);
+  exit(0);
+}
 
 char* makeHeader(int32_t seq, int32_t ack, int16_t conn, int16_t flag) {
   int32_t mask_32 = 0b00000000000000000000000011111111;
@@ -83,9 +92,29 @@ void printRecv(int16_t flag, int32_t serv_seq, int32_t serv_ack, int16_t connect
   }
 }
 
+void printDrop(int16_t flag, int32_t serv_seq, int32_t serv_ack, int16_t connection){
+  switch(flag) {
+    case 0: printf("DROP %d %d %d\n", serv_seq, serv_ack, connection);
+      break;
+    case 2: printf("DROP %d %d %d SYN\n", serv_seq, serv_ack, connection);
+      break;
+    case 4: printf("DROP %d %d %d ACK\n", serv_seq, serv_ack, connection);
+      break;
+    case 1: printf("DROP %d %d %d FIN\n", serv_seq, serv_ack, connection);
+      break;
+    case 6: printf("DROP %d %d %d ACK SYN\n", serv_seq, serv_ack, connection);
+      break;
+    case 3: printf("DROP %d %d %d SYN FIN\n", serv_seq, serv_ack, connection);
+      break;
+    case 5: printf("DROP %d %d %d ACK FIN\n", serv_seq, serv_ack, connection);
+      break;
+    default: printf("DROP %d %d %d\n", serv_seq, serv_ack, connection);
+  }
+}
+
 int main(int argc, char **argv)
 {
-  int i, portnum, n, sockfd, fileLength;
+  int i, portnum, n, fileLength;
   int16_t connection, serv_flag;
   int16_t SYN = 0b0000000000000010;
   int16_t ACK = 0b0000000000000100;
@@ -103,6 +132,9 @@ int main(int argc, char **argv)
   struct sockaddr_in servaddr;
   int cwnd = 512;
   int ssthresh = 10000;
+  int close_timer = 1000 * 2;
+  int timeout_timer = 1000 * 10;
+  clock_t start_time;
   // checking that we have both port number and file dir as args
   if(argc < 4) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -110,6 +142,8 @@ int main(int argc, char **argv)
   }
 
   char* hostname = argv[1];
+
+  signal(SIGALRM, sighandler);
 
   // checking that port number is all digits
   for(i = 0; i < strlen(argv[2]); i++){
@@ -244,7 +278,6 @@ int main(int argc, char **argv)
   memcpy(buffer+12, sendbuf+itr-1, res-itr);
   buffer[res-itr+12] = '\0';
   sendSize = res-itr+12;
-  printf("%ld\n", sendSize);
   sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
   printf("SEND %d %d %d %d %d\n", seq_num, ack_num, connection, cwnd, ssthresh);
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
@@ -264,8 +297,9 @@ int main(int argc, char **argv)
   printf("SEND %d %d %d %d %d FIN \n", seq_num, ack_num, connection, cwnd, ssthresh);
   seq_num++;
 
-  // receive ACK
+  // receive ACK or FIN_ACK
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
+  alarm(2);
   buffer[n] = '\0';
   // decoding the header
   serv_seq = getSeq(buffer);
@@ -274,9 +308,35 @@ int main(int argc, char **argv)
   connection = getConnection(buffer);
   printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
   ack_num = serv_seq+1;
-  // wait 2 seconds (receiving and ACKing FIN packets, drop others)
+  // if it was a FIN_ACK, we need to ACK
+  if(serv_flag == FIN+ACK) {
+    header = makeHeader(seq_num, ack_num, connection, ACK);
+    sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+    printf("SEND %d %d %d %d %d ACK \n", seq_num, ack_num, connection, cwnd, ssthresh);
+    seq_num++;
+  }
 
-  // close connection
-  close(sockfd);
-  exit(0);
+  // wait 2 seconds (receiving and ACKing FIN packets, drop others)
+  while(1) {
+    n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
+    buffer[n] = '\0';
+    // decoding the header
+    serv_seq = getSeq(buffer);
+    serv_ack = getAck(buffer);
+    serv_flag = getFlags(buffer);
+    connection = getConnection(buffer);
+    ack_num = serv_seq+1;
+    if(serv_flag == FIN) {
+      printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+      header = makeHeader(seq_num, ack_num, connection, ACK);
+      sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+      printf("SEND %d %d %d %d %d ACK \n", seq_num, ack_num, connection, cwnd, ssthresh);
+      seq_num++;
+    } else {
+      printDrop(serv_flag, serv_seq, serv_ack, connection);
+    }
+  }
+  // // close connection
+  // close(sockfd);
+  // exit(0);
 }

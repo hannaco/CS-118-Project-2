@@ -13,7 +13,6 @@
 #define MAX_SIZE 524
 
 void sighandler() {
-  printf("Signal caught.\n");
   exit(0);
 }
 
@@ -106,6 +105,7 @@ int main(int argc, char **argv)
   char* header;
   FILE* filePointer;
   char filename[4096];
+  milli_seconds = 1000 * 10;
   // checking that we have both port number and file dir as args
   if(argc < 3) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -155,6 +155,9 @@ int main(int argc, char **argv)
 
   // receiving packet from a client
   length = recvfrom(sockfd, (char *) buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
+  // Storing start time
+  start_time = clock();
+
   if (length < 0) {
     fprintf(stderr, "ERROR: error receiving packet - %s\r\n", strerror(errno));
     exit(1); 
@@ -183,20 +186,8 @@ int main(int argc, char **argv)
   printf("SEND %d %d %d ACK SYN\n", seq_num, ack_num, connection_count-1);
   seq_num++;
 
-  // Converting time into milli_seconds
-  milli_seconds = 1000 * 10;
-  // Storing start time
-  start_time = clock();
-
-  // waiting ten seconds
-  while(clock() < start_time+milli_seconds) {
-    // receives ACK with some payload
-    length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
-    if(length != -1)
-      break;
-  }
-  // restart timer
-  start_time = clock()
+  // receives ACK with some payload
+  length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
   buffer[length] = '\0';
   // decoding the header
   cli_seq = getSeq(buffer);
@@ -207,6 +198,7 @@ int main(int argc, char **argv)
     ack_num = cli_seq+length-12-102400-1;
   else
     ack_num = cli_seq+length-12;
+
   fputs(buffer+12, filePointer);
 
   // sends ACK, no payload
@@ -251,7 +243,23 @@ int main(int argc, char **argv)
   printf("SEND %d %d %d ACK\n", seq_num, ack_num, connection_count-1);
   seq_num++;
 
-  // send FIN
+  // send FIN until we receive ACK
+  do {
+    header = makeHeader(seq_num, ack_num, connection_count-1, FIN);
+    sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+    printf("SEND %d %d %d FIN\n", seq_num, ack_num, connection_count-1);
+
+    length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
+    buffer[length] = '\0';
+    // decoding the header
+    cli_seq = getSeq(buffer);
+    cli_ack = getAck(buffer);
+    cli_flag = getFlags(buffer);
+    printRecv(cli_flag, cli_seq, cli_ack, connection_count-1);
+    // if its an ACK
+    if(cli_flag == ACK)
+      break;
+  } while(length != -1);
 
   close(sockfd);
   exit(0);
