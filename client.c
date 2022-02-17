@@ -213,7 +213,6 @@ int main(int argc, char **argv)
   serv_flag = getFlags(buffer);
   connection = getConnection(buffer);
   printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
-    
 
   // for(int i = 0; i < 12; i++){
   //   printf("%d\n", buffer[i]);
