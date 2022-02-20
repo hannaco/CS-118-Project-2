@@ -14,6 +14,8 @@
 // TODO: congestion control, reliable transport
 // probably need to add looping to implement reliable delivery -- looping until you get your ACKs
 
+#define MAX_CWND 51200
+
 int sockfd;
 
 // for the two second timer at the end
@@ -28,8 +30,7 @@ char* makeHeader(int32_t seq, int32_t ack, int16_t conn, int16_t flag) {
   int16_t mask_16 = 0xff;
   int16_t temp;
   char* header;
-  int cwnd = 512;
-  int ssthresh = 10000;
+  
   header = malloc(13);
   header[3] = seq&mask_32;
   header[2] = (seq>>8)&mask_32;
@@ -123,6 +124,26 @@ void printDrop(int16_t flag, int32_t serv_seq, int32_t serv_ack, int16_t connect
   }
 }
 
+//adjusting cwnd
+int adjustCwnd(int cwnd, int ssthresh)
+{
+  if(cwnd < ssthresh)
+  {
+    cwnd += 512;
+  }
+  else
+  {
+    cwnd += (512 * 512) / cwnd;
+  }
+
+  if(cwnd >  MAX_CWND)
+  {
+    cwnd = MAX_CWND;
+  }
+
+  return cwnd;
+}
+
 int main(int argc, char **argv)
 {
   int i, portnum, n, fileLength;
@@ -134,7 +155,7 @@ int main(int argc, char **argv)
   int32_t MAX_SEQ = 0b00000000000000011001000000000000;
   int32_t ack_num, seq_num, serv_seq, serv_ack;
   FILE* filePointer;
-  size_t res, itr, sendSize;
+  size_t res, itr, sendSize, cwnd_end;
   unsigned int len;
   char* sendbuf;
   char* header;
@@ -264,6 +285,7 @@ int main(int argc, char **argv)
     printDrop(serv_flag, serv_seq, serv_ack, my_conn);
   } else {
     printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+    cwnd = adjustCwnd(cwnd, ssthresh);
     ack_num = serv_seq+1;
   }
   
@@ -271,11 +293,11 @@ int main(int argc, char **argv)
   // send file in 512 byte payloads (need to get ACKs)
   itr = 512;
   // while we have 512 byte chunks to send
-  while(itr <= res){
+  while(itr <= res-512){
     header = makeHeader(seq_num, ack_num, connection, NONE);
     memset(buffer, 0, sizeof buffer);
     memcpy(buffer, header, 12);
-    memcpy(buffer+12, sendbuf+itr-1, 512);
+    memcpy(buffer+12, sendbuf+itr, 512);
     buffer[524] = '\0';
     sendSize = 524;
     sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
@@ -296,14 +318,15 @@ int main(int argc, char **argv)
       seq_num += sendSize - 12;
       ack_num = serv_seq+1;
       printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+      cwnd = adjustCwnd(cwnd, ssthresh);
       itr+=512;
     }
   }
-  itr -= 512;
+  // itr -= 512;
   header = makeHeader(seq_num, ack_num, connection, NONE);
   memset(buffer, 0, sizeof buffer);
   memcpy(buffer, header, 12);
-  memcpy(buffer+12, sendbuf+itr-1, res-itr);
+  memcpy(buffer+12, sendbuf+itr, res-itr);
   buffer[res-itr+12] = '\0';
   sendSize = res-itr+12;
   sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
@@ -325,6 +348,7 @@ int main(int argc, char **argv)
     ack_num = serv_seq+1;
     seq_num += sendSize - 12;
     printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+    cwnd = adjustCwnd(cwnd, ssthresh);
   }
 
   // send FIN
@@ -348,6 +372,7 @@ int main(int argc, char **argv)
     printDrop(serv_flag, serv_seq, serv_ack, my_conn);
   } else {
     printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+    cwnd = adjustCwnd(cwnd, ssthresh);
     ack_num = serv_seq+1;
     // if it was a FIN_ACK, we need to ACK
     if(serv_flag == FIN+ACK) {
@@ -370,6 +395,7 @@ int main(int argc, char **argv)
     ack_num = serv_seq+1;
     if(serv_flag == FIN) {
       printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+      cwnd = adjustCwnd(cwnd, ssthresh);
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
       printf("SEND %d %d %d %d %d ACK \n", seq_num, ack_num, connection, cwnd, ssthresh);
