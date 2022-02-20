@@ -21,8 +21,8 @@ void sighandler() {
 
 // function that bit shifts seq, ack, connection number, and flags to create header
 char* makeHeader(int32_t seq, int32_t ack, int16_t conn, int16_t flag) {
-  int32_t mask_32 = 0b00000000000000000000000011111111;
-  int16_t mask_16 = 0b0000000011111111;
+  int32_t mask_32 = 0xff;
+  int16_t mask_16 = 0xff;
   int16_t temp;
   char* header;
   header = malloc(13);
@@ -48,73 +48,73 @@ char* makeHeader(int32_t seq, int32_t ack, int16_t conn, int16_t flag) {
 
 // decodes header to get seq
 int32_t getSeq(char* header) {
-  int32_t serv_seq = ((header[0]<<24)&0b11111111000000000000000000000000)
-                    +((header[1]<<16)&0b00000000111111110000000000000000)
-                    +((header[2]<<8)&0b00000000000000001111111100000000)
-                    +(header[3]&0b00000000000000000000000011111111);
+  int32_t serv_seq = ((header[0]<<24)&0xff000000)
+                    +((header[1]<<16)&0x00ff0000)
+                    +((header[2]<<8)&0x0000ff00)
+                    +(header[3]&0x000000ff);
   return serv_seq;
 }
 
 // decodes header to get ack
 int32_t getAck(char* header) {
-  int32_t serv_ack = ((header[4]<<24)&0b11111111000000000000000000000000)
-                    +((header[5]<<16)&0b00000000111111110000000000000000)
-                    +((header[6]<<8)&0b00000000000000001111111100000000)
-                    +(header[7]&0b00000000000000000000000011111111);
+  int32_t serv_ack = ((header[4]<<24)&0xff000000)
+                    +((header[5]<<16)&0x00ff0000)
+                    +((header[6]<<8)&0x0000ff00)
+                    +(header[7]&0x000000ff);
   return serv_ack;
 }
 
 // decodes header to get flags
 int16_t getFlags(char* header) {
-  int16_t serv_flag = ((header[10]<<8)&0b1111111100000000)+(header[11]&0b0000000011111111);
+  int16_t serv_flag = ((header[10]<<8)&0xff00)+(header[11]&0x00ff);
   return serv_flag;
 }
 
 // decodes header to get connection number
 int16_t getConnection(char* header) {
-  int16_t connection = ((header[8]<<8)&0b1111111100000000)+(header[9]&0b0000000011111111);
+  int16_t connection = ((header[8]<<8)&0xff00)+(header[9]&0x00ff);
   return connection;
 }
 
 // printing RECV message based on flags
 void printRecv(int16_t flag, int32_t cli_seq, int32_t cli_ack, int16_t connection){
   switch(flag) {
-    case 0: printf("RECV %d %d %d\n", cli_seq, cli_ack, connection);
+    case 0: printf("RECV %d %d %d\n", cli_seq, 0, connection);
       break;
-    case 2: printf("RECV %d %d %d SYN\n", cli_seq, cli_ack, connection);
+    case 2: printf("RECV %d %d %d SYN\n", cli_seq, 0, connection);
       break;
     case 4: printf("RECV %d %d %d ACK\n", cli_seq, cli_ack, connection);
       break;
-    case 1: printf("RECV %d %d %d FIN\n", cli_seq, cli_ack, connection);
+    case 1: printf("RECV %d %d %d FIN\n", cli_seq, 0, connection);
       break;
     case 6: printf("RECV %d %d %d ACK SYN\n", cli_seq, cli_ack, connection);
       break;
-    case 3: printf("RECV %d %d %d SYN FIN\n", cli_seq, cli_ack, connection);
+    case 3: printf("RECV %d %d %d SYN FIN\n", cli_seq, 0, connection);
       break;
     case 5: printf("RECV %d %d %d ACK FIN\n", cli_seq, cli_ack, connection);
       break;
-    default: printf("RECV %d %d %d\n", cli_seq, cli_ack, connection);
+    default: printf("RECV %d %d %d\n", cli_seq, 0, connection);
   }
 }
 
 // printing DROP message based on flags
 void printDrop(int16_t flag, int32_t cli_seq, int32_t cli_ack, int16_t connection){
   switch(flag) {
-    case 0: printf("DROP %d %d %d\n", cli_seq, cli_ack, connection);
+    case 0: printf("DROP %d %d %d\n", cli_seq, 0, connection);
       break;
-    case 2: printf("DROP %d %d %d SYN\n", cli_seq, cli_ack, connection);
+    case 2: printf("DROP %d %d %d SYN\n", cli_seq, 0, connection);
       break;
     case 4: printf("DROP %d %d %d ACK\n", cli_seq, cli_ack, connection);
       break;
-    case 1: printf("DROP %d %d %d FIN\n", cli_seq, cli_ack, connection);
+    case 1: printf("DROP %d %d %d FIN\n", cli_seq, 0, connection);
       break;
     case 6: printf("DROP %d %d %d ACK SYN\n", cli_seq, cli_ack, connection);
       break;
-    case 3: printf("DROP %d %d %d SYN FIN\n", cli_seq, cli_ack, connection);
+    case 3: printf("DROP %d %d %d SYN FIN\n", cli_seq, 0, connection);
       break;
     case 5: printf("DROP %d %d %d ACK FIN\n", cli_seq, cli_ack, connection);
       break;
-    default: printf("DROP %d %d %d\n", cli_seq, cli_ack, connection);
+    default: printf("DROP %d %d %d\n", cli_seq, 0, connection);
   }
 }
 
@@ -282,7 +282,7 @@ int main(int argc, char **argv)
     do {
       header = makeHeader(seq_num, ack_num, cli_connection, FIN);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-      printf("SEND %d %d %d FIN\n", seq_num, ack_num, cli_connection);
+      printf("SEND %d %d %d FIN\n", seq_num, 0, cli_connection);
       length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
       buffer[length] = '\0';
       // decoding the header

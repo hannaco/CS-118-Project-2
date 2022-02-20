@@ -24,8 +24,8 @@ void sighandler() {
 
 // function that bit shifts seq, ack, connection number, and flags to create header
 char* makeHeader(int32_t seq, int32_t ack, int16_t conn, int16_t flag) {
-  int32_t mask_32 = 0b00000000000000000000000011111111;
-  int16_t mask_16 = 0b0000000011111111;
+  int32_t mask_32 = 0xff;
+  int16_t mask_16 = 0xff;
   int16_t temp;
   char* header;
   int cwnd = 512;
@@ -53,73 +53,73 @@ char* makeHeader(int32_t seq, int32_t ack, int16_t conn, int16_t flag) {
 
 // decodes header to get seq
 int32_t getSeq(char* header) {
-  int32_t serv_seq = ((header[0]<<24)&0b11111111000000000000000000000000)
-                    +((header[1]<<16)&0b00000000111111110000000000000000)
-                    +((header[2]<<8)&0b00000000000000001111111100000000)
-                    +(header[3]&0b00000000000000000000000011111111);
+  int32_t serv_seq = ((header[0]<<24)&0xff000000)
+                    +((header[1]<<16)&0x00ff0000)
+                    +((header[2]<<8)&0x0000ff00)
+                    +(header[3]&0x000000ff);
   return serv_seq;
 }
 
 // decodes header to get ack
 int32_t getAck(char* header) {
-  int32_t serv_ack = ((header[4]<<24)&0b11111111000000000000000000000000)
-                    +((header[5]<<16)&0b00000000111111110000000000000000)
-                    +((header[6]<<8)&0b00000000000000001111111100000000)
-                    +(header[7]&0b00000000000000000000000011111111);
+  int32_t serv_ack = ((header[4]<<24)&0xff000000)
+                    +((header[5]<<16)&0x00ff0000)
+                    +((header[6]<<8)&0x0000ff00)
+                    +(header[7]&0x000000ff);
   return serv_ack;
 }
 
 // decodes header to get flags
 int16_t getFlags(char* header) {
-  int16_t serv_flag = ((header[10]<<8)&0b1111111100000000)+(header[11]&0b0000000011111111);
+  int16_t serv_flag = ((header[10]<<8)&0xff00)+(header[11]&0x00ff);
   return serv_flag;
 }
 
 // decodes header to get connection number
 int16_t getConnection(char* header) {
-  int16_t connection = ((header[8]<<8)&0b1111111100000000)+(header[9]&0b0000000011111111);
+  int16_t connection = ((header[8]<<8)&0xff00)+(header[9]&0x00ff);
   return connection;
 }
 
 // printing RECV message based on flags
 void printRecv(int16_t flag, int32_t serv_seq, int32_t serv_ack, int16_t connection, int cwnd, int ssthresh){
   switch(flag) {
-    case 0: printf("RECV %d %d %d %d %d\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
+    case 0: printf("RECV %d %d %d %d %d\n", serv_seq, 0, connection, cwnd, ssthresh);
       break;
-    case 2: printf("RECV %d %d %d %d %d SYN\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
+    case 2: printf("RECV %d %d %d %d %d SYN\n", serv_seq, 0, connection, cwnd, ssthresh);
       break;
     case 4: printf("RECV %d %d %d %d %d ACK\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
       break;
-    case 1: printf("RECV %d %d %d %d %d FIN\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
+    case 1: printf("RECV %d %d %d %d %d FIN\n", serv_seq, 0, connection, cwnd, ssthresh);
       break;
     case 6: printf("RECV %d %d %d %d %d ACK SYN\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
       break;
-    case 3: printf("RECV %d %d %d %d %d SYN FIN\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
+    case 3: printf("RECV %d %d %d %d %d SYN FIN\n", serv_seq, 0, connection, cwnd, ssthresh);
       break;
     case 5: printf("RECV %d %d %d %d %d ACK FIN\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
       break;
-    default: printf("RECV %d %d %d %d %d\n", serv_seq, serv_ack, connection, cwnd, ssthresh);
+    default: printf("RECV %d %d %d %d %d\n", serv_seq, 0, connection, cwnd, ssthresh);
   }
 }
 
 // printing DROP message based on flags
 void printDrop(int16_t flag, int32_t serv_seq, int32_t serv_ack, int16_t connection){
   switch(flag) {
-    case 0: printf("DROP %d %d %d\n", serv_seq, serv_ack, connection);
+    case 0: printf("DROP %d %d %d\n", serv_seq, 0, connection);
       break;
-    case 2: printf("DROP %d %d %d SYN\n", serv_seq, serv_ack, connection);
+    case 2: printf("DROP %d %d %d SYN\n", serv_seq, 0, connection);
       break;
     case 4: printf("DROP %d %d %d ACK\n", serv_seq, serv_ack, connection);
       break;
-    case 1: printf("DROP %d %d %d FIN\n", serv_seq, serv_ack, connection);
+    case 1: printf("DROP %d %d %d FIN\n", serv_seq, 0, connection);
       break;
     case 6: printf("DROP %d %d %d ACK SYN\n", serv_seq, serv_ack, connection);
       break;
-    case 3: printf("DROP %d %d %d SYN FIN\n", serv_seq, serv_ack, connection);
+    case 3: printf("DROP %d %d %d SYN FIN\n", serv_seq, 0, connection);
       break;
     case 5: printf("DROP %d %d %d ACK FIN\n", serv_seq, serv_ack, connection);
       break;
-    default: printf("DROP %d %d %d\n", serv_seq, serv_ack, connection);
+    default: printf("DROP %d %d %d\n", serv_seq, 0, connection);
   }
 }
 
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
   // ten second alarm
   alarm(10);
-  printf("SEND %d %d %d %d %d SYN\n", seq_num, ack_num, connection, cwnd, ssthresh);
+  printf("SEND %d %d %d %d %d SYN\n", seq_num, 0, connection, cwnd, ssthresh);
   seq_num++;
   // receive SYN-ACK from server
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
@@ -279,7 +279,7 @@ int main(int argc, char **argv)
     buffer[524] = '\0';
     sendSize = 524;
     sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-    printf("SEND %d %d %d %d %d\n", seq_num, ack_num, connection, cwnd, ssthresh);
+    printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
     n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
     // reset ten second alarm
     alarm(10);
@@ -307,7 +307,7 @@ int main(int argc, char **argv)
   buffer[res-itr+12] = '\0';
   sendSize = res-itr+12;
   sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-  printf("SEND %d %d %d %d %d\n", seq_num, ack_num, connection, cwnd, ssthresh);
+  printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
   // receive ACK
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
   // reset ten second alarm
@@ -330,7 +330,7 @@ int main(int argc, char **argv)
   // send FIN
   header = makeHeader(seq_num, ack_num, connection, FIN);
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-  printf("SEND %d %d %d %d %d FIN \n", seq_num, ack_num, connection, cwnd, ssthresh);
+  printf("SEND %d %d %d %d %d FIN \n", seq_num, 0, connection, cwnd, ssthresh);
   seq_num++;
 
   // receive ACK or FIN_ACK
