@@ -9,10 +9,12 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <time.h>
+#include <sys/stat.h>
 
 // TODO: congestion control, reliable transport, multiple clients?, ten second timeout, drop
 
 #define MAX_SIZE 524
+#define MAX_SEQ 102401
 
 // exits when signal is receiv
 void sighandler() {
@@ -135,6 +137,7 @@ int main(int argc, char **argv)
   char* header;
   FILE* filePointer;
   char filename[4096];
+  char pathname[4096];
   // checking that we have both port number and file dir as args
   if(argc < 3) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -189,6 +192,16 @@ int main(int argc, char **argv)
     }
     connection_count++;
     // take folder path and connection number and open a file
+    struct stat stats;
+
+    sprintf(pathname, ".%s", argv[2]);
+
+    stat(pathname, &stats);
+
+    if(!S_ISDIR(stats.st_mode))
+    {
+      mkdir(pathname, 0777);
+    }
     snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
     filePointer = fopen(filename, "w+");
     if(filePointer == NULL){
@@ -206,7 +219,7 @@ int main(int argc, char **argv)
     // always start with sequence number of 4321
     seq_num = 4321;
     // ack is next sequence number we expect
-    ack_num = cli_seq+1;
+    ack_num = (cli_seq+1) % MAX_SEQ;
     header = makeHeader(seq_num, ack_num, connection_count, SYN+ACK);
     printRecv(cli_flag, cli_seq, cli_ack, 0);
 
@@ -214,7 +227,7 @@ int main(int argc, char **argv)
     sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
     printf("SEND %d %d %d ACK SYN\n", seq_num, ack_num, connection_count);
     // increment sequence number and connection
-    seq_num++;
+    seq_num = (seq_num +1) % MAX_SEQ;
 
     // receives ACK with some payload
     length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
@@ -226,10 +239,7 @@ int main(int argc, char **argv)
     cli_connection = getConnection(buffer);
     printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
     // incrementing ack number
-    if(cli_seq+length > 102400)
-      ack_num = cli_seq+length-12-102400-1;
-    else
-      ack_num = cli_seq+length-12;
+    ack_num = (cli_seq+length-12) % MAX_SEQ;
 
     // writing to file
     fputs(buffer+12, filePointer);
@@ -238,11 +248,8 @@ int main(int argc, char **argv)
     header = makeHeader(seq_num, ack_num, cli_connection, ACK);
     sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
     printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-    seq_num++;
-    if(cli_seq+length > 102400)
-      ack_num = cli_seq+length-12-102400-1;
-    else
-      ack_num = cli_seq+length-12;
+    seq_num = (seq_num +1) % MAX_SEQ;
+    ack_num = (cli_seq+length-12) % MAX_SEQ;
 
     // ACK received packets
     while(1) {
@@ -258,25 +265,22 @@ int main(int argc, char **argv)
       if(cli_flag == FIN)
         break;
       printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-      if(cli_seq+length > 102400)
-        ack_num = cli_seq+length-12-102400-1;
-      else
-        ack_num = cli_seq+length-12;
+      ack_num = (cli_seq+length-12) % MAX_SEQ;
       header = makeHeader(seq_num, ack_num, cli_connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
       printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-      seq_num++;
+      seq_num = (seq_num +1) % MAX_SEQ;
     }
 
     // receive FIN packet
     printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-    ack_num++;
+    ack_num = (ack_num + 1) % MAX_SEQ;
 
     // send ACK
     header = makeHeader(seq_num, ack_num, cli_connection, ACK);
     sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
     printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-    seq_num++;
+    seq_num = (seq_num +1) % MAX_SEQ;
 
     // send FIN until we receive ACK
     do {
