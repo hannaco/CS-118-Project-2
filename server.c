@@ -202,10 +202,24 @@ int main(int argc, char **argv)
     {
       mkdir(pathname, 0777);
     }
+    
+
+    int dir_size = strlen(pathname);
+
+    // if(pathname[dir_size-1] == '/')
+    // {
+    //   snprintf(filename, sizeof(filename), ".%s%d.file", argv[2], (connection_count));
+    // }
+    // else
+    // {
+    //   snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
+    // }
+
     snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
+
     filePointer = fopen(filename, "w+");
     if(filePointer == NULL){
-      fprintf(stderr, "ERROR: Unable to open file.\n");
+      fprintf(stderr, "ERROR: Unable to open file in server: %s. -- %s\n", filename, strerror(errno));
       exit(1);
     }
     // setting the last byte to zero so we can write to a file
@@ -251,16 +265,26 @@ int main(int argc, char **argv)
     seq_num = (seq_num +1) % MAX_SEQ;
     ack_num = (cli_seq+length-12) % MAX_SEQ;
 
+    int nextToWrite = ack_num;
+
     // ACK received packets
     while(1) {
       length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
       buffer[length] = '\0';
-      fputs(buffer+12, filePointer);
+      // fputs(buffer+12, filePointer);
       // decoding the header
       cli_seq = getSeq(buffer);
       cli_ack = getAck(buffer);
       cli_flag = getFlags(buffer);
       cli_connection = getConnection(buffer);
+
+      //check if we should write this to file or not
+      if(cli_seq == nextToWrite)
+      {
+        fputs(buffer+12, filePointer);
+        nextToWrite = (cli_seq+length-12) % MAX_SEQ;
+      }
+
       // if we got a FIN, break
       if(cli_flag == FIN)
         break;
