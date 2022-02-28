@@ -473,7 +473,7 @@ int main(int argc, char **argv)
       fprintf(stderr, "ERROR: error receiving packet - %s\r\n", strerror(errno));
       exit(1); 
     }
-    snprintf(filename, sizeof(filename), "%s/%d.file", argv[2], (connection_count));
+    snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
     filePointer = fopen(filename, "w+");
     if(filePointer == NULL){
       fprintf(stderr, "ERROR: Unable to open file.\n");
