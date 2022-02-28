@@ -138,6 +138,7 @@ int main(int argc, char **argv)
   FILE* filePointer;
   char filename[4096];
   char pathname[4096];
+  char receiveWindow[201][525];
   // checking that we have both port number and file dir as args
   if(argc < 3) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -215,7 +216,7 @@ int main(int argc, char **argv)
     //   snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
     // }
 
-    snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
+    snprintf(filename, sizeof(filename), "%s/%d.file", argv[2], (connection_count));
 
     filePointer = fopen(filename, "w+");
     if(filePointer == NULL){
@@ -289,6 +290,7 @@ int main(int argc, char **argv)
       if(cli_flag == FIN)
         break;
       printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+      // ack_num = nextToWrite;
       ack_num = (cli_seq+length-12) % MAX_SEQ;
       header = makeHeader(seq_num, ack_num, cli_connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);

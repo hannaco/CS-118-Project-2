@@ -172,6 +172,7 @@ int main(int argc, char **argv)
   struct sockaddr_in servaddr;
   int cwnd = 512;
   int ssthresh = 10000;
+  int packetTable[201] = {0};
 
   // checking that we have both port number and file dir as args
   if(argc < 4) {
@@ -308,30 +309,50 @@ int main(int argc, char **argv)
   int expAck = seq_num;
   int dup = 0;
   while(itr <= res-512){
-    sendBase = seq_num;
-    header = makeHeader(seq_num, ack_num, connection, NONE);
-    memset(buffer, 0, sizeof buffer);
-    memcpy(buffer, header, 12);
-    memcpy(buffer+12, sendbuf+itr, 512);
-    buffer[524] = '\0';
-    sendSize = 524;
-    sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+    seq_num = sendBase;
+
+    int bytesSent = 0;
+    int startItr = itr;
+
+    // while(bytesSent <= cwnd - 512 && itr <= res-512)
+    while(bytesSent <= 0)
+    {
+      //store file position of this packet
+      packetTable[seq_num/512] = itr;
+
+      //make packet
+      header = makeHeader(seq_num, ack_num, connection, NONE);
+      memset(buffer, 0, sizeof buffer);
+      memcpy(buffer, header, 12);
+      memcpy(buffer+12, sendbuf+itr, 512);
+      buffer[524] = '\0';
+      sendSize = 524;
+      sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+
+      if(dup)
+      {
+        dup = 0;
+        printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
+        fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
+      }
+      else
+      {
+        printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
+      }
+
+      itr += 512;
+      bytesSent += 512;
+      seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
+    }
+    
     // printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
 
     //check if dup
-    if(dup)
-    {
-      dup = 0;
-      printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-      fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
-    }
-    else
-    {
-      printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
-    }
+    
 
     //update expected ack number
-    expAck = (seq_num + sendSize - 12) % MAX_SEQ;
+    // expAck = (seq_num + sendSize - 12) % MAX_SEQ;
+    expAck = seq_num;
 
     
     //new additions
@@ -361,15 +382,37 @@ int main(int argc, char **argv)
       if(connection != my_conn){
         printDrop(serv_flag, serv_seq, serv_ack, my_conn);
       } else {
-        seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
+        // seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
         ack_num = (serv_seq+1) % MAX_SEQ;
         printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
         cwnd = adjustCwnd(cwnd, ssthresh);
+
+        int lastSuccess;
+        
+        if(serv_ack  < 512)
+        {
+          lastSuccess = serv_ack - 512 + MAX_SEQ;
+        }
+        else
+        {
+          lastSuccess = serv_ack - 512;
+        }
+
         if(serv_ack <= sendBase)
         {
-          fprintf(stderr, "GREATER OR EQUAL ACK serv_ack = %d, sendBase= %d\n", serv_ack, sendBase);
+          fprintf(stderr, "GREATER OR EQUAL ACK serv_ack = %d, sendBase= %d, lastSuccess= %d\n", serv_ack, sendBase, lastSuccess);
         }
-        sendBase = serv_ack;
+
+        // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
+
+        if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
+        {
+          sendBase = serv_ack;
+        }
+        else
+        {
+          fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
+        }
       }
 
       tv.tv_sec = 0;
@@ -380,7 +423,7 @@ int main(int argc, char **argv)
 
       if(sendBase == expAck)
       {
-        itr+=512;
+        // itr+=512;
         break;
       }
 
@@ -394,6 +437,7 @@ int main(int argc, char **argv)
       ssthresh = cwnd/2;
       cwnd = 512;
       dup = 1;
+      itr = packetTable[sendBase/512];
     }
   }
   // itr -= 512;
