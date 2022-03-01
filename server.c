@@ -138,7 +138,7 @@ int main(int argc, char **argv)
   FILE* filePointer;
   char filename[4096];
   char pathname[4096];
-  char receiveWindow[201][525];
+  char receiveWindow[201][525] = {0};
   // checking that we have both port number and file dir as args
   if(argc < 3) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -263,10 +263,14 @@ int main(int argc, char **argv)
     header = makeHeader(seq_num, ack_num, cli_connection, ACK);
     sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
     printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-    seq_num = (seq_num +1) % MAX_SEQ;
+    // seq_num = (seq_num +1) % MAX_SEQ;
     ack_num = (cli_seq+length-12) % MAX_SEQ;
 
     int nextToWrite = ack_num;
+    int writeIndex = ack_num/512;
+    // printf("%d\n", writeIndex);
+    // printf("%s\n", receiveWindow[writeIndex]);
+
 
     // ACK received packets
     while(1) {
@@ -279,23 +283,40 @@ int main(int argc, char **argv)
       cli_flag = getFlags(buffer);
       cli_connection = getConnection(buffer);
 
+      // if we got a FIN, break
+      if(cli_flag == FIN)
+        break;
+
       //check if we should write this to file or not
       if(cli_seq == nextToWrite)
       {
         fputs(buffer+12, filePointer);
+        // the next sequence number we should be writing
         nextToWrite = (cli_seq+length-12) % MAX_SEQ;
+        // index of the array that we should be writing frmo
+        writeIndex = nextToWrite/512;
+        // check if this packet fills a gap and write to the file if it does
+        while(strcmp(receiveWindow[writeIndex], "") != 0) {
+          fputs(receiveWindow[writeIndex], filePointer);
+          memset(receiveWindow[writeIndex],0,sizeof(receiveWindow[writeIndex]));
+          // update the indices
+          writeIndex = (writeIndex + 1) % 201;
+          nextToWrite = ((writeIndex*512)+length-12) % MAX_SEQ;
+        }
+        // printf("%d\n", writeIndex);
+        // printf("%d\n", nextToWrite);
+      } 
+      else {
+        strcpy(buffer+12, receiveWindow[cli_seq/512]);
       }
 
-      // if we got a FIN, break
-      if(cli_flag == FIN)
-        break;
       printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-      // ack_num = nextToWrite;
-      ack_num = (cli_seq+length-12) % MAX_SEQ;
+      // ack_num = (cli_seq+length-12) % MAX_SEQ;
+      ack_num = nextToWrite;
       header = makeHeader(seq_num, ack_num, cli_connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
       printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-      seq_num = (seq_num +1) % MAX_SEQ;
+    //   seq_num = (seq_num +1) % MAX_SEQ;
     }
 
     // receive FIN packet
@@ -306,7 +327,7 @@ int main(int argc, char **argv)
     header = makeHeader(seq_num, ack_num, cli_connection, ACK);
     sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
     printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-    seq_num = (seq_num +1) % MAX_SEQ;
+    // seq_num = (seq_num +1) % MAX_SEQ;
 
     // send FIN until we receive ACK
     do {
