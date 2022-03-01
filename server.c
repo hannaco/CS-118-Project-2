@@ -139,6 +139,7 @@ int main(int argc, char **argv)
   char filename[4096];
   char pathname[4096];
   char receiveWindow[201][525] = {0};
+  int finack = 1;
   // checking that we have both port number and file dir as args
   if(argc < 3) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -324,16 +325,24 @@ int main(int argc, char **argv)
     ack_num = (ack_num + 1) % MAX_SEQ;
 
     // send ACK
-    header = makeHeader(seq_num, ack_num, cli_connection, ACK);
-    sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-    printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
+    // header = makeHeader(seq_num, ack_num, cli_connection, ACK);
+    // sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+    // printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
     // seq_num = (seq_num +1) % MAX_SEQ;
 
     // send FIN until we receive ACK
     do {
-      header = makeHeader(seq_num, ack_num, cli_connection, FIN);
-      sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-      printf("SEND %d %d %d FIN\n", seq_num, 0, cli_connection);
+      if(finack) {
+        header = makeHeader(seq_num, ack_num, cli_connection, FIN+ACK);
+        finack = 0;
+        sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+        printf("SEND %d %d %d ACK FIN\n", seq_num, ack_num, cli_connection);
+      }
+      else {
+        header = makeHeader(seq_num, ack_num, cli_connection, FIN);
+        sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+        printf("SEND %d %d %d FIN\n", seq_num, ack_num, cli_connection);
+      }
       length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
       buffer[length] = '\0';
       // decoding the header
