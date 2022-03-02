@@ -15,10 +15,12 @@
 
 #define MAX_SIZE 524
 #define MAX_SEQ 102401
+FILE* filePointer;
 
 // exits when signal is receiv
 void sighandler() {
   exit(0);
+  fclose(filePointer);
 }
 
 // function that bit shifts seq, ack, connection number, and flags to create header
@@ -135,7 +137,7 @@ int main(int argc, char **argv)
   struct sockaddr_in my_addr, cli_addr;
   char buffer[MAX_SIZE + 1];
   char* header;
-  FILE* filePointer;
+  // FILE* filePointer;
   char filename[4096];
   char pathname[4096];
   char receiveWindow[201][525] = {0};
@@ -159,7 +161,6 @@ int main(int argc, char **argv)
   // listening for signals
   signal(SIGQUIT, sighandler);
   signal(SIGTERM, sighandler);
-
   // creating socket
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd  == -1)
@@ -324,20 +325,16 @@ int main(int argc, char **argv)
     printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
     ack_num = (ack_num + 1) % MAX_SEQ;
 
-    // send ACK
-    // header = makeHeader(seq_num, ack_num, cli_connection, ACK);
-    // sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-    // printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-    // seq_num = (seq_num +1) % MAX_SEQ;
-
     // send FIN until we receive ACK
     do {
+      // if we should send a finack
       if(finack) {
         header = makeHeader(seq_num, ack_num, cli_connection, FIN+ACK);
         finack = 0;
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
         printf("SEND %d %d %d ACK FIN\n", seq_num, ack_num, cli_connection);
       }
+      // otherwise we just send a fin
       else {
         header = makeHeader(seq_num, ack_num, cli_connection, FIN);
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);

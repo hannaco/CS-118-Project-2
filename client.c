@@ -709,6 +709,7 @@ int main(int argc, char **argv)
   int ssthresh = 10000;
   int packetTable[201] = {0};
   fd_set rfds;
+  int firstPacket = 1;
   int lastPacket = 0;
   int resid;
 
@@ -796,141 +797,166 @@ int main(int argc, char **argv)
   my_conn = connection;
   printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
 
-  int firstPacket = 1;
-
-  // send ACK with payload
+  // setting ACK
   ack_num = (serv_seq+1) % MAX_SEQ;
-  // header = makeHeader(seq_num, ack_num, connection, ACK);
-  // memset(buffer, 0, sizeof buffer);
-  // memcpy(buffer, header, 12);
-  // // if our file is more than 512 bytes then we only send 512 bytes
-  // if(res > 512){
-  //   memcpy(buffer+12, sendbuf, 512);
-  //   buffer[524] = '\0';
-  //   sendSize = 524;
-  // } else {
-  //   // otherwise we send the whole thing
-  //   memcpy(buffer+12, sendbuf, res);
-  //   buffer[res+12] = '\0';
-  //   sendSize = 12+res;
-  // }
-  // sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-  // printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
-  // seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
-  // // receive ACK from server
-  // n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
-  // // reset ten second alarm
-  // alarm(10);
-  // buffer[n] = '\0';
-  // // decoding the header
-  // serv_seq = getSeq(buffer);
-  // serv_ack = getAck(buffer);
-  // serv_flag = getFlags(buffer);
-  // connection = getConnection(buffer);
-  // // if the connection ID doesn't match we drop it
-  // if(connection != my_conn){
-  //   printDrop(serv_flag, serv_seq, serv_ack, my_conn);
-  // } else {
-  //   printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
-  //   cwnd = adjustCwnd(cwnd, ssthresh);
-  //   ack_num = (serv_seq+1) % MAX_SEQ;
-  // }
-
   resid = res % 512;
-
-  // if we have more data to send
-  // if(res > 512) {
-    // send file in 512 byte payloads (need to get ACKs)
-    // itr = 512;
-    itr = 0;
+  itr = 0;
     
-    // this is the last unacked byte
-    int sendBase = seq_num;
-    // the number of the ack we expect
-    int expAck = seq_num;
-    int dup = 0;
-    // while we have 512 byte chunks to send
-    while(itr < res) {
-      // we set sequence number to the last unacked byte because that is the next one we are sending
-      seq_num = sendBase;
+  // this is the last unacked byte
+  int sendBase = seq_num;
+  // the number of the ack we expect
+  int expAck = seq_num;
+  int dup = 0;
+  // while we have 512 byte chunks to send
+  while(itr < res) {
+    // we set sequence number to the last unacked byte because that is the next one we are sending
+    seq_num = sendBase;
 
-      int bytesSent = 0;
-      int startItr = itr;
+    int bytesSent = 0;
+    int startItr = itr;
 
-      while(bytesSent <= cwnd - 512 && itr < res)
-      // while(bytesSent <= 0)
-      {
-        //store file position of this packet
-        packetTable[seq_num/512] = itr;
+    while(bytesSent <= cwnd - 512 && itr < res)
+    // while(bytesSent <= 0)
+    {
+      //store file position of this packet
+      packetTable[seq_num/512] = itr;
 
-        if(firstPacket) {
-          header = makeHeader(seq_num, ack_num, connection, ACK);
-        }
-        else {
-          header = makeHeader(seq_num, ack_num, connection, NONE);
-        }
+      // if this is the first packet we're sending with payload
+      if(firstPacket) {
+        header = makeHeader(seq_num, ack_num, connection, ACK);
+      }
+      else {
+        header = makeHeader(seq_num, ack_num, connection, NONE);
+      }
 
-        //make packet
-        // header = makeHeader(seq_num, ack_num, connection, NONE);
-        memset(buffer, 0, sizeof buffer);
-        memcpy(buffer, header, 12);
-        if(itr+512 > res){
-          memcpy(buffer+12, sendbuf+itr, res-itr);
-          buffer[res-itr+12] = '\0';
-          sendSize = res-itr+12;
-          lastPacket = 1;
-        }
-        else {
-          memcpy(buffer+12, sendbuf+itr, 512);
-          buffer[524] = '\0';
-          sendSize = 524;
-        }
-        sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+      //make packet
+      memset(buffer, 0, sizeof buffer);
+      memcpy(buffer, header, 12);
+      // if we have less than 512 bytes to write, then its the last file
+      if(itr+512 > res){
+        memcpy(buffer+12, sendbuf+itr, res-itr);
+        buffer[res-itr+12] = '\0';
+        sendSize = res-itr+12;
+        lastPacket = 1;
+      }
+      else {
+        memcpy(buffer+12, sendbuf+itr, 512);
+        buffer[524] = '\0';
+        sendSize = 524;
+      }
+      sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
 
+      // if this is the first packet
+      if(firstPacket) {
         // if this is a duplicate packet
-        if(firstPacket) {
-          if(dup)
-          {
-            dup = 0;
-            printf("SEND %d %d %d %d %d ACK DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-            fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
-          }
-          else
-          {
-            printf("SEND %d %d %d %d %d ACK\n", seq_num, 0, connection, cwnd, ssthresh);
-          }
-          firstPacket = 0;
+        if(dup)
+        {
+          dup = 0;
+          printf("SEND %d %d %d %d %d ACK DUP\n", seq_num, 0, connection, cwnd, ssthresh);
+          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
         }
-        else {
-          if(dup)
-          {
-            dup = 0;
-            printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-            fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
-          }
-          else
-          {
-            printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
-          }
+        else
+        {
+          printf("SEND %d %d %d %d %d ACK\n", seq_num, 0, connection, cwnd, ssthresh);
         }
-
-        itr += (sendSize-12);
-        bytesSent += (sendSize-12);
-        seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
+        firstPacket = 0;
+      }
+      else {
+        if(dup)
+        {
+          dup = 0;
+          printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
+          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
+        }
+        else
+        {
+          printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
+        }
       }
       
-      // printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
+      // increase itr and bytes sent by how many bytes of the file we sent
+      itr += (sendSize-12);
+      bytesSent += (sendSize-12);
+      seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
+    }
 
-      //check if dup
-      
+    //update expected ack number
+    // expAck = (seq_num + sendSize - 12) % MAX_SEQ;
+    expAck = seq_num;
 
-      //update expected ack number
-      // expAck = (seq_num + sendSize - 12) % MAX_SEQ;
-      expAck = seq_num;
+    //new additions
+    struct timeval tv;
 
-      
-      //new additions
-      struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 500000;
+
+    FD_ZERO(&rfds);
+    FD_SET(sockfd, &rfds);
+
+    // polling the socket to see if there's anything to read
+    int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+
+    // while there is data to read
+    while(retval)
+    {
+      n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
+
+      // reset ten second alarm
+      alarm(10);
+      buffer[n] = '\0';
+      // decoding the header
+      serv_seq = getSeq(buffer);
+      serv_ack = getAck(buffer);
+      serv_flag = getFlags(buffer);
+      connection = getConnection(buffer);
+      // if the connection ID doesn't match we drop it
+      if(connection != my_conn){
+        printDrop(serv_flag, serv_seq, serv_ack, my_conn);
+      } else {
+        // seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
+        ack_num = (serv_seq+1) % MAX_SEQ;
+        printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+        cwnd = adjustCwnd(cwnd, ssthresh);
+
+        int lastSuccess;
+        
+        if(lastPacket == 0) {
+          if(serv_ack  < 512)
+          {
+            lastSuccess = serv_ack - 512 + MAX_SEQ;
+          }
+          else
+          {
+            lastSuccess = serv_ack - 512;
+          }
+        } 
+        else {
+          if(serv_ack  < resid)
+          {
+            lastSuccess = serv_ack - resid + MAX_SEQ;
+          }
+          else
+          {
+            lastSuccess = serv_ack - resid;
+          }
+        }
+
+        if(serv_ack <= sendBase)
+        {
+          fprintf(stderr, "GREATER OR EQUAL ACK serv_ack = %d, sendBase= %d, lastSuccess= %d\n", serv_ack, sendBase, lastSuccess);
+        }
+
+        // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
+
+        if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
+        {
+          sendBase = serv_ack;
+        }
+        else
+        {
+          fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
+        }
+      }
 
       tv.tv_sec = 0;
       tv.tv_usec = 500000;
@@ -938,95 +964,25 @@ int main(int argc, char **argv)
       FD_ZERO(&rfds);
       FD_SET(sockfd, &rfds);
 
-      int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
-
-      while(retval)
+      if(sendBase == expAck)
       {
-        n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
-
-          // reset ten second alarm
-        alarm(10);
-        buffer[n] = '\0';
-        // decoding the header
-        serv_seq = getSeq(buffer);
-        serv_ack = getAck(buffer);
-        serv_flag = getFlags(buffer);
-        connection = getConnection(buffer);
-        // if the connection ID doesn't match we drop it
-        if(connection != my_conn){
-          printDrop(serv_flag, serv_seq, serv_ack, my_conn);
-        } else {
-          // seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
-          ack_num = (serv_seq+1) % MAX_SEQ;
-          printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
-          cwnd = adjustCwnd(cwnd, ssthresh);
-
-          int lastSuccess;
-          
-          if(lastPacket == 0) {
-            if(serv_ack  < 512)
-            {
-              lastSuccess = serv_ack - 512 + MAX_SEQ;
-            }
-            else
-            {
-              lastSuccess = serv_ack - 512;
-            }
-          } 
-          else {
-            if(serv_ack  < resid)
-            {
-              lastSuccess = serv_ack - resid + MAX_SEQ;
-            }
-            else
-            {
-              lastSuccess = serv_ack - resid;
-            }
-          }
-
-          if(serv_ack <= sendBase)
-          {
-            fprintf(stderr, "GREATER OR EQUAL ACK serv_ack = %d, sendBase= %d, lastSuccess= %d\n", serv_ack, sendBase, lastSuccess);
-          }
-
-          // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
-
-          if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
-          {
-            sendBase = serv_ack;
-          }
-          else
-          {
-            fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
-          }
-        }
-
-        tv.tv_sec = 0;
-        tv.tv_usec = 500000;
-
-        FD_ZERO(&rfds);
-        FD_SET(sockfd, &rfds);
-
-        if(sendBase == expAck)
-        {
-          // itr+=512;
-          break;
-        }
-
-        retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
-
+        // itr+=512;
+        break;
       }
 
-      if(sendBase != expAck)
-      {
-        fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d\n", seq_num, sendBase, expAck, serv_ack);
-        ssthresh = cwnd/2;
-        cwnd = 512;
-        dup = 1;
-        itr = packetTable[sendBase/512];
-      }
+      retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+
     }
-  // }
+
+    if(sendBase != expAck)
+    {
+      fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d\n", seq_num, sendBase, expAck, serv_ack);
+      ssthresh = cwnd/2;
+      cwnd = 512;
+      dup = 1;
+      itr = packetTable[sendBase/512];
+    }
+  }
 
   // send FIN
   header = makeHeader(seq_num, ack_num, connection, FIN);
