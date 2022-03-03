@@ -355,6 +355,7 @@ int main(int argc, char **argv)
     } while(length != -1);
 
     fclose(filePointer);
+    finack = 1;
   }
 
   close(sockfd);
