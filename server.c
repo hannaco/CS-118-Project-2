@@ -259,7 +259,7 @@ int main(int argc, char **argv)
     ack_num = (cli_seq+length-12) % MAX_SEQ;
 
     // writing to file
-    fputs(buffer+12, filePointer);
+    fwrite(buffer+12, 1, length-12, filePointer);
 
     // sends ACK, no payload
     header = makeHeader(seq_num, ack_num, cli_connection, ACK);
@@ -278,7 +278,7 @@ int main(int argc, char **argv)
     while(1) {
       length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
       buffer[length] = '\0';
-      // fputs(buffer+12, filePointer);
+      // fwrite(buffer+12, 1, length-12, filePointer);
       // decoding the header
       cli_seq = getSeq(buffer);
       cli_ack = getAck(buffer);
@@ -292,14 +292,15 @@ int main(int argc, char **argv)
       //check if we should write this to file or not
       if(cli_seq == nextToWrite)
       {
-        fputs(buffer+12, filePointer);
+        fwrite(buffer+12, 1, length-12, filePointer);
         // the next sequence number we should be writing
         nextToWrite = (cli_seq+length-12) % MAX_SEQ;
         // index of the array that we should be writing frmo
         writeIndex = nextToWrite/512;
         // check if this packet fills a gap and write to the file if it does
         while(strcmp(receiveWindow[writeIndex], "") != 0) {
-          fputs(receiveWindow[writeIndex], filePointer);
+          fwrite(receiveWindow[writeIndex], 1, length-12, filePointer);
+          // fputs(receiveWindow[writeIndex], filePointer);
           memset(receiveWindow[writeIndex],0,sizeof(receiveWindow[writeIndex]));
           // update the indices
           writeIndex = (writeIndex + 1) % 201;
@@ -313,12 +314,14 @@ int main(int argc, char **argv)
         int receivedInd = cli_seq/512;
         if(endRWNDInd < writeIndex){
           if(receivedInd >= writeIndex || receivedInd < endRWNDInd) {
-            strcpy(buffer+12, receiveWindow[cli_seq/512]);
+            memcpy(receiveWindow[cli_seq/512], buffer+12, 512);
+            // strcpy(buffer+12, receiveWindow[cli_seq/512]);
           }
         }
         else {
           if(receivedInd >= writeIndex && receivedInd < endRWNDInd){
-            strcpy(buffer+12, receiveWindow[cli_seq/512]);
+            memcpy(receiveWindow[cli_seq/512], buffer+12, 512);
+            // strcpy(buffer+12, receiveWindow[cli_seq/512]);
           }
         }
       }
