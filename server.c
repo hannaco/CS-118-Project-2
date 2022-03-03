@@ -309,7 +309,16 @@ int main(int argc, char **argv)
         // printf("%d\n", nextToWrite);
       } 
       else {
-        strcpy(buffer+12, receiveWindow[cli_seq/512]);
+        if(cli_seq > nextToWrite){
+          strcpy(buffer+12, receiveWindow[cli_seq/512]);
+        }
+        else {
+          if(nextToWrite+51200 > MAX_SEQ){
+            if(nextToWrite+51200-MAX_SEQ > cli_seq){
+              strcpy(buffer+12, receiveWindow[cli_seq/512]);
+            }
+          }
+        }
       }
 
       printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
