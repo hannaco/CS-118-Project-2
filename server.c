@@ -309,14 +309,16 @@ int main(int argc, char **argv)
         // printf("%d\n", nextToWrite);
       } 
       else {
-        if(cli_seq > nextToWrite){
-          strcpy(buffer+12, receiveWindow[cli_seq/512]);
+        int endRWNDInd = (writeIndex+100)%201;
+        int receivedInd = cli_seq/512;
+        if(endRWNDInd < writeIndex){
+          if(receivedInd >= writeIndex || receivedInd < endRWNDInd) {
+            strcpy(buffer+12, receiveWindow[cli_seq/512]);
+          }
         }
         else {
-          if(nextToWrite+51200 > MAX_SEQ){
-            if(nextToWrite+51200-MAX_SEQ > cli_seq){
-              strcpy(buffer+12, receiveWindow[cli_seq/512]);
-            }
+          if(receivedInd >= writeIndex && receivedInd < endRWNDInd){
+            strcpy(buffer+12, receiveWindow[cli_seq/512]);
           }
         }
       }
