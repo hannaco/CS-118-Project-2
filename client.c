@@ -293,7 +293,7 @@ int main(int argc, char **argv)
         header = makeHeader(seq_num, ack_num, connection, ACK);
       }
       else {
-        header = makeHeader(seq_num, ack_num, connection, NONE);
+        header = makeHeader(seq_num, 0, connection, NONE);
       }
 
       //keep track of farthest itr sent
@@ -330,7 +330,7 @@ int main(int argc, char **argv)
         }
         else
         {
-          printf("SEND %d %d %d %d %d ACK\n", seq_num, 0, connection, cwnd, ssthresh);
+          printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
         }
         firstPacket = 0;
       }
@@ -459,9 +459,9 @@ int main(int argc, char **argv)
   }
 
   // send FIN
-  header = makeHeader(seq_num, ack_num, connection, FIN);
+  header = makeHeader(seq_num, 0, connection, FIN);
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-  printf("SEND %d %d %d %d %d FIN \n", seq_num, 0, connection, cwnd, ssthresh);
+  printf("SEND %d %d %d %d %d FIN\n", seq_num, 0, connection, cwnd, ssthresh);
   seq_num++;
 
   // receive ACK or FIN_ACK
@@ -480,13 +480,14 @@ int main(int argc, char **argv)
     printDrop(serv_flag, serv_seq, serv_ack, my_conn);
   } else {
     printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
-    cwnd = adjustCwnd(cwnd, ssthresh);
+    //cwnd = adjustCwnd(cwnd, ssthresh);
     ack_num = (serv_seq+1) % MAX_SEQ;
     // if it was a FIN_ACK, we need to ACK
     if(serv_flag == FIN+ACK) {
+      //fprintf(stderr, "FIN ACK HERE\n");
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-      printf("SEND %d %d %d %d %d ACK \n", seq_num, ack_num, connection, cwnd, ssthresh);
+      printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
       seq_num++;
     }
   }
@@ -506,7 +507,7 @@ int main(int argc, char **argv)
       cwnd = adjustCwnd(cwnd, ssthresh);
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-      printf("SEND %d %d %d %d %d ACK \n", seq_num, ack_num, connection, cwnd, ssthresh);
+      printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
       seq_num++;
     } else {
       printDrop(serv_flag, serv_seq, serv_ack, connection);
