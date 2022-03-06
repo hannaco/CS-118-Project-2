@@ -246,33 +246,12 @@ int main(int argc, char **argv)
     // increment sequence number and connection
     seq_num = (seq_num +1) % MAX_SEQ;
 
-    // receives ACK with some payload
-    length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
-    buffer[length] = '\0';
-    // decoding the header
-    cli_seq = getSeq(buffer);
-    cli_ack = getAck(buffer);
-    cli_flag = getFlags(buffer);
-    cli_connection = getConnection(buffer);
-    printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-    // incrementing ack number
-    ack_num = (cli_seq+length-12) % MAX_SEQ;
-
-    // writing to file
-    fwrite(buffer+12, 1, length-12, filePointer);
-
-    // sends ACK, no payload
-    header = makeHeader(seq_num, ack_num, cli_connection, ACK);
-    sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-    printf("SEND %d %d %d ACK\n", seq_num, ack_num, cli_connection);
-    // seq_num = (seq_num +1) % MAX_SEQ;
-    ack_num = (cli_seq+length-12) % MAX_SEQ;
-
     int nextToWrite = ack_num;
     int writeIndex = ack_num/512;
     // printf("%d\n", writeIndex);
     // printf("%s\n", receiveWindow[writeIndex]);
 
+    int extra = 0;
 
     // ACK received packets
     while(1) {
@@ -288,23 +267,27 @@ int main(int argc, char **argv)
       // if we got a FIN, break
       if(cli_flag == FIN)
         break;
+      // fprintf(stderr, "RECEIVED PACKET WITH cli_seq = %d, nextToWrite = %d, writeIndex = %d, ack_num = %d\n", cli_seq, nextToWrite, writeIndex, ack_num);
 
       //check if we should write this to file or not
       if(cli_seq == nextToWrite)
       {
         fwrite(buffer+12, 1, length-12, filePointer);
+        // fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, writeIndex = %d\n", nextToWrite, writeIndex);
         // the next sequence number we should be writing
         nextToWrite = (cli_seq+length-12) % MAX_SEQ;
         // index of the array that we should be writing frmo
         writeIndex = nextToWrite/512;
-        // check if this packet fills a gap and write to the file if it does
-        while(strcmp(receiveWindow[writeIndex], "") != 0) {
+        while(extra != 0) {
+          fprintf(stderr, "WRITING PACKET WITH seq_num = %d, writeIndex = %d\n", nextToWrite, writeIndex);
           fwrite(receiveWindow[writeIndex], 1, length-12, filePointer);
           // fputs(receiveWindow[writeIndex], filePointer);
           memset(receiveWindow[writeIndex],0,sizeof(receiveWindow[writeIndex]));
           // update the indices
-          writeIndex = (writeIndex + 1) % 201;
-          nextToWrite = ((writeIndex*512)+length-12) % MAX_SEQ;
+          nextToWrite = (nextToWrite+512) % MAX_SEQ;
+          writeIndex = nextToWrite/512;
+          // nextToWrite = ((writeIndex*512)+length-12) % MAX_SEQ;
+          extra--;
         }
         // printf("%d\n", writeIndex);
         // printf("%d\n", nextToWrite);
@@ -314,13 +297,13 @@ int main(int argc, char **argv)
         int receivedInd = cli_seq/512;
         if(endRWNDInd < writeIndex){
           if(receivedInd >= writeIndex || receivedInd < endRWNDInd) {
-            memcpy(receiveWindow[cli_seq/512], buffer+12, 512);
+            memcpy(receiveWindow[cli_seq/512], buffer+12, length-12);
             // strcpy(buffer+12, receiveWindow[cli_seq/512]);
           }
         }
         else {
           if(receivedInd >= writeIndex && receivedInd < endRWNDInd){
-            memcpy(receiveWindow[cli_seq/512], buffer+12, 512);
+            memcpy(receiveWindow[cli_seq/512], buffer+12, length-12);
             // strcpy(buffer+12, receiveWindow[cli_seq/512]);
           }
         }
@@ -366,6 +349,12 @@ int main(int argc, char **argv)
       // if its an ACK
       if(cli_flag == ACK)
         break;
+      else if(cli_flag == FIN){
+        header = makeHeader(seq_num, ack_num, cli_connection, FIN+ACK);
+        finack = 0;
+        sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+        printf("SEND %d %d %d ACK FIN\n", seq_num, ack_num, cli_connection);
+      }
     } while(length != -1);
 
     fclose(filePointer);
