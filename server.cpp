@@ -11,14 +11,16 @@
 #include <time.h>
 #include <sys/stat.h>
 #include <vector>
+#include <algorithm>
 
-// TODO: congestion control, reliable transport, multiple clients?, ten second timeout, drop
+// TODO:  ten second timeout, drop
 
 #define MAX_SIZE 524
 #define MAX_SEQ 102401
 
 // exits when signal is receiv
 void sighandler(int param) {
+  //TODO: close files
   exit(0);
   // fclose(filePointer);
 }
@@ -166,9 +168,11 @@ int main(int argc, char **argv)
   char buffer[MAX_SIZE + 1];
   char* header;
   std::vector<connectionInfo> connVector;
+  std::vector<int> finInds;
   // FILE* filePointer;
   char filename[4096];
   char pathname[4096];
+  fd_set rfds;
   // checking that we have both port number and file dir as args
   if(argc < 3) {
     fprintf(stderr, "ERROR: Not enough arguments to server.\n");
@@ -210,146 +214,165 @@ int main(int argc, char **argv)
   }
 
   // continuously serve requests
-  while(1) {    
-    // getting the size of cli_addr
-    sz = sizeof(cli_addr);
+  while(1) {  
 
-    length = recvfrom(sockfd, (char *) buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
-    if (length < 0) {
-      fprintf(stderr, "ERROR: error receiving packet - %s\r\n", strerror(errno));
-      exit(1); 
-    }
+    struct timeval tv;
 
-    // decoding header from clients packet and making a response header
-    cli_seq = getSeq(buffer);
-    cli_ack = getAck(buffer);
-    cli_flag = getFlags(buffer);
-    cli_connection = getConnection(buffer);
+    tv.tv_sec = 0;
+    tv.tv_usec = 500000;
 
-    int ind = cli_connection - 1;
+    FD_ZERO(&rfds);
+    FD_SET(sockfd, &rfds);
 
-    if(cli_flag == SYN)
+    int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+
+    if(retval)
     {
-      connection_count++;
-      connectionInfo newConn = connectionInfo(cli_seq);
-      connVector.push_back(newConn);
+      // getting the size of cli_addr
+      sz = sizeof(cli_addr);
 
-      ind = connection_count - 1;
-
-      //create file
-      snprintf(filename, sizeof(filename), "%s/%d.file", argv[2], (connection_count));
-
-      connVector[ind].filePointer = fopen(filename, "w+");
-      if(connVector[ind].filePointer == NULL){
-        fprintf(stderr, "ERROR: Unable to open file in server: %s. -- %s\n", filename, strerror(errno));
-        exit(1);
+      length = recvfrom(sockfd, (char *) buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
+      if (length < 0) {
+        fprintf(stderr, "ERROR: error receiving packet - %s\r\n", strerror(errno));
+        exit(1); 
       }
-      // setting the last byte to zero so we can write to a file
-      buffer[length] = '\0';
 
-      header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, connection_count, SYN+ACK);
-      printRecv(cli_flag, cli_seq, cli_ack, 0);
+      // decoding header from clients packet and making a response header
+      cli_seq = getSeq(buffer);
+      cli_ack = getAck(buffer);
+      cli_flag = getFlags(buffer);
+      cli_connection = getConnection(buffer);
 
-      // sends SYN ACK, no payload
-      sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-      printf("SEND %d %d %d ACK SYN\n", connVector[ind].seq_num, connVector[ind].ack_num, connection_count);
-      // increment sequence number and connection
-      connVector[ind].seq_num = (connVector[ind].seq_num +1) % MAX_SEQ;
+      int ind = cli_connection - 1;
 
-    }
-    else if (cli_flag == FIN)
-    {
-      // receive FIN packet
-      printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-      connVector[ind].ack_num = (connVector[ind].ack_num + 1) % MAX_SEQ;
+      if(cli_flag == SYN)
+      {
+        connection_count++;
+        connectionInfo newConn = connectionInfo(cli_seq);
+        connVector.push_back(newConn);
 
-      // send FIN until we receive ACK
-      do {
-        // if we should send a finack
-        if(connVector[ind].finack) {
-          header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN+ACK);
-          connVector[ind].finack = 0;
-          sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-          printf("SEND %d %d %d ACK FIN\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
+        ind = connection_count - 1;
+
+        //create file
+        snprintf(filename, sizeof(filename), "%s/%d.file", argv[2], (connection_count));
+
+        connVector[ind].filePointer = fopen(filename, "w+");
+        if(connVector[ind].filePointer == NULL){
+          fprintf(stderr, "ERROR: Unable to open file in server: %s. -- %s\n", filename, strerror(errno));
+          exit(1);
         }
-        // otherwise we just send a fin
-        else {
-          header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN);
-          sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-          printf("SEND %d %d %d FIN\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
-        }
-        length = recvfrom(sockfd, (char *)buffer, MAX_SIZE, 0, (struct sockaddr *) &cli_addr, &sz);
+        // setting the last byte to zero so we can write to a file
         buffer[length] = '\0';
 
-        printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-        // if its an ACK
-        if(cli_flag == ACK)
-          break;
-        else if(cli_flag == FIN){
-          header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN+ACK);
-          connVector[ind].finack = 0;
-          sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-          printf("SEND %d %d %d ACK FIN\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
-        }
-      } while(length != -1);
+        header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, connection_count, SYN+ACK);
+        printRecv(cli_flag, cli_seq, cli_ack, 0);
 
-      fclose(connVector[ind].filePointer);
-      connVector[ind].finack = 1;
-    }
-    else
-    {
-      //check if we should write this to file or not
-      if(cli_seq == connVector[ind].nextToWrite)
+        // sends SYN ACK, no payload
+        sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+        printf("SEND %d %d %d ACK SYN\n", connVector[ind].seq_num, connVector[ind].ack_num, connection_count);
+        // increment sequence number and connection
+        connVector[ind].seq_num = (connVector[ind].seq_num +1) % MAX_SEQ;
+
+      }
+      else if (cli_flag == FIN)
       {
-        fwrite(buffer+12, 1, length-12, connVector[ind].filePointer);
-        // fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, writeIndex = %d\n", nextToWrite, writeIndex);
-        // the next sequence number we should be writing
-        connVector[ind].nextToWrite = (cli_seq+length-12) % MAX_SEQ;
-        // index of the array that we should be writing frmo
-        connVector[ind].writeIndex = connVector[ind].nextToWrite/512;
-        // while(connVector[ind].receiveValidity[writeIndex] != 0) {
-          while(connVector[ind].extra != 0) {
-          fprintf(stderr, "WRITING PACKET WITH seq_num = %d, writeIndex = %d\n", connVector[ind].nextToWrite, connVector[ind].writeIndex);
-          fwrite(connVector[ind].receiveWindow[connVector[ind].writeIndex], 1, length-12, connVector[ind].filePointer);
-          // fputs(receiveWindow[writeIndex], filePointer);
-          memset(connVector[ind].receiveWindow[connVector[ind].writeIndex],0,sizeof(connVector[ind].receiveWindow[connVector[ind].writeIndex]));
-          // connVector[ind].receiveValidity[connVector[ind].writeIndex] = 0;
-          // update the indices
-          connVector[ind].nextToWrite = (connVector[ind].nextToWrite+512) % MAX_SEQ;
+        // receive FIN packet
+        int pos = -1;
+
+        for(int i = 0; i < finInds.size(); i++)
+        {
+          if(ind == finInds[i])
+          {
+            pos = i;
+            break;
+          }
+        } 
+
+        if(pos < 0)
+        {
+          finInds.push_back(ind);
+        }
+
+        printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+        connVector[ind].ack_num = (connVector[ind].ack_num + 1) % MAX_SEQ;
+
+        header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN+ACK);
+        sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+        printf("SEND %d %d %d ACK FIN\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
+      }
+      else if(cli_flag == ACK && std::find(finInds.begin(), finInds.end(), ind) != finInds.end())
+      {
+        printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+
+        finInds.erase(std::find(finInds.begin(), finInds.end(), ind));
+        fclose(connVector[ind].filePointer);
+      }
+      else
+      {
+        //check if we should write this to file or not
+        if(cli_seq == connVector[ind].nextToWrite)
+        {
+          fwrite(buffer+12, 1, length-12, connVector[ind].filePointer);
+          // fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, writeIndex = %d\n", nextToWrite, writeIndex);
+          // the next sequence number we should be writing
+          connVector[ind].nextToWrite = (cli_seq+length-12) % MAX_SEQ;
+          // index of the array that we should be writing frmo
           connVector[ind].writeIndex = connVector[ind].nextToWrite/512;
-          // nextToWrite = ((writeIndex*512)+length-12) % MAX_SEQ;
-          connVector[ind].extra--;
-        }
-        // printf("%d\n", writeIndex);
-        // printf("%d\n", nextToWrite);
-      } 
-      else {
-        int endRWNDInd = (connVector[ind].writeIndex+100)%201;
-        int receivedInd = cli_seq/512;
-        if(endRWNDInd < connVector[ind].writeIndex){
-          if(receivedInd >= connVector[ind].writeIndex || receivedInd < endRWNDInd) {
-            memcpy(connVector[ind].receiveWindow[cli_seq/512], buffer+12, length-12);
-            // strcpy(buffer+12, receiveWindow[cli_seq/512]);
-            // connVector[ind].receiveValidity[cli_seq/512] = 1;
-            connVector[ind].extra++;
+          // while(connVector[ind].receiveValidity[writeIndex] != 0) {
+            while(connVector[ind].extra != 0) {
+            fprintf(stderr, "WRITING PACKET WITH seq_num = %d, writeIndex = %d\n", connVector[ind].nextToWrite, connVector[ind].writeIndex);
+            fwrite(connVector[ind].receiveWindow[connVector[ind].writeIndex], 1, length-12, connVector[ind].filePointer);
+            // fputs(receiveWindow[writeIndex], filePointer);
+            memset(connVector[ind].receiveWindow[connVector[ind].writeIndex],0,sizeof(connVector[ind].receiveWindow[connVector[ind].writeIndex]));
+            // connVector[ind].receiveValidity[connVector[ind].writeIndex] = 0;
+            // update the indices
+            connVector[ind].nextToWrite = (connVector[ind].nextToWrite+512) % MAX_SEQ;
+            connVector[ind].writeIndex = connVector[ind].nextToWrite/512;
+            // nextToWrite = ((writeIndex*512)+length-12) % MAX_SEQ;
+            connVector[ind].extra--;
           }
-        }
+          // printf("%d\n", writeIndex);
+          // printf("%d\n", nextToWrite);
+        } 
         else {
-          if(receivedInd >= connVector[ind].writeIndex && receivedInd < endRWNDInd){
-            memcpy(connVector[ind].receiveWindow[cli_seq/512], buffer+12, length-12);
-            // connVector[ind].receiveValidity[cli_seq/512] = 1;
-            // strcpy(buffer+12, receiveWindow[cli_seq/512]);
-            connVector[ind].extra++;
+          int endRWNDInd = (connVector[ind].writeIndex+100)%201;
+          int receivedInd = cli_seq/512;
+          if(endRWNDInd < connVector[ind].writeIndex){
+            if(receivedInd >= connVector[ind].writeIndex || receivedInd < endRWNDInd) {
+              memcpy(connVector[ind].receiveWindow[cli_seq/512], buffer+12, length-12);
+              // strcpy(buffer+12, receiveWindow[cli_seq/512]);
+              // connVector[ind].receiveValidity[cli_seq/512] = 1;
+              connVector[ind].extra++;
+            }
+          }
+          else {
+            if(receivedInd >= connVector[ind].writeIndex && receivedInd < endRWNDInd){
+              memcpy(connVector[ind].receiveWindow[cli_seq/512], buffer+12, length-12);
+              // connVector[ind].receiveValidity[cli_seq/512] = 1;
+              // strcpy(buffer+12, receiveWindow[cli_seq/512]);
+              connVector[ind].extra++;
+            }
           }
         }
+
+        printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+        // ack_num = (cli_seq+length-12) % MAX_SEQ;
+        connVector[ind].ack_num = connVector[ind].nextToWrite;
+        header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, ACK);
+        sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+        printf("SEND %d %d %d ACK\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
       }
 
-      printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
-      // ack_num = (cli_seq+length-12) % MAX_SEQ;
-      connVector[ind].ack_num = connVector[ind].nextToWrite;
-      header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, ACK);
-      sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
-      printf("SEND %d %d %d ACK\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
+      //Send a FIN ACK
+      if(!finInds.empty())
+      {
+        for(int i = 0; i < finInds.size(); i++)
+        {
+          header = makeHeader(connVector[finInds[i]].seq_num, connVector[finInds[i]].ack_num, finInds[i]+1, FIN+ACK);
+          sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
+          printf("SEND %d %d %d ACK FIN\n", connVector[finInds[i]].seq_num, connVector[finInds[i]].ack_num, finInds[i]+1);
+        }
+      }
     }
 
     
