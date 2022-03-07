@@ -1,39 +1,38 @@
-# CS118 Project 2
+CS118 Project 2
 
-## Makefile
+Isha Gonugunta (405337405)
+Hanna Co (205303784)
+Helen Wang (405320396)
 
-This provides a couple make targets for things.
-By default (all target), it makes the `server` and `client` executables.
+Design
 
-It provides a `clean` target, and `tarball` target to create the submission file as well.
+server: 
+- check for hostname + port num valid, create server socket
+- have a while loop to continuously serve requests from client + use select to monitor for input without blocking
+- upon input, decode the packet header for the data received from the client to get the seq num, ack, and packet type, create a file if it's a SYN packet starting the 3 way handshake, and otherwise call the makeheader function to create a packet header + send it as response to the client. have a vector to store connectioninfo
+- then write packet data to the created file in chunks + send ack fin/fin when client sends fin packet + close, exit when the user terminates the server run
 
-You will need to modify the `Makefile` to add your userid for the `.tar.gz` turn-in at the top of the file.
+client:
+- 
 
-## Provided Files
 
-`server.cpp` and `client.cpp` are the entry points for the server and client part of the project.
 
-## Academic Integrity Note
+functions to create packet headers
 
-You are encouraged to host your code in private repositories on [GitHub](https://github.com/), [GitLab](https://gitlab.com), or other places.  At the same time, you are PROHIBITED to make your code for the class project public during the class or any time after the class.  If you do so, you will be violating academic honestly policy that you have signed, as well as the student code of conduct and be subject to serious sanctions.
+Problems
+- running autograder w/ m1 chip + windows
+- didn't know the test files included binaries, thought just ascii so weren't passing some cases we expected to
+    didn't use string library, used memcpy + memset instead
+- send/receive/etc weren't matching even though they were actually working
+    compared with git diff w/ ref client + server, found formatting issues to fix
+- issues with wrong order of receive + sending packets, issue with one of the variables keeping track of writing
+to file
+- timer issue for 10 seconds + added connectioninfo class to keep track of closing connections after 10 sec timeout
 
-## Wireshark dissector
-
-For debugging purposes, you can use the wireshark dissector from `tcp.lua`. The dissector requires
-at least version 1.12.6 of Wireshark with LUA support enabled.
-
-To enable the dissector for Wireshark session, use `-X` command line option, specifying the full
-path to the `tcp.lua` script:
-
-    wireshark -X lua_script:./confundo.lua
-
-To dissect tcpdump-recorded file, you can use `-r <pcapfile>` option. For example:
-
-    wireshark -X lua_script:./confundo.lua -r confundo.pcap
-
-## TODO
-
+Additional Libraries/Resources
 https://www.geeksforgeeks.org/udp-server-client-implementation-c/
 https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
 https://www.geeksforgeeks.org/time-delay-c/
+https://stackoverflow.com/questions/7226603/timeout-function
+
 
