@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <time.h>
 #include <signal.h>
+#include <sys/time.h>
 
 // TODO: congestion control, reliable transport
 // probably need to add looping to implement reliable delivery -- looping until you get your ACKs
@@ -152,6 +153,10 @@ int adjustCwnd(int cwnd, int ssthresh){
   return cwnd;
 }
 
+int getPacketTableIndex(int seq_num) { // deal w/ overflow
+  return ((seq_num + MAX_SEQ - 512) % MAX_SEQ)/512;
+}
+
 int main(int argc, char **argv)
 {
   int i, portnum, n, fileLength;
@@ -272,15 +277,16 @@ int main(int argc, char **argv)
   int expAck = seq_num;
   int dup = 0;
   size_t max_itr_sent = itr;
+
+  struct timeval start_time; // for 0.5 second timeout
+  int end_window = 102401;
+
   // while we have 512 byte chunks to send
   while(itr < res) {
     // we set sequence number to the last unacked byte because that is the next one we are sending
     seq_num = sendBase;
 
     int bytesSent = 0;
-    int startItr = itr;
-
-    
 
     while(bytesSent <= cwnd - 512 && itr < res)
     // while(bytesSent <= 0)
@@ -301,7 +307,7 @@ int main(int argc, char **argv)
       {
         max_itr_sent = itr;
         dup = 0;
-      }
+      }      
 
       //make packet
       memset(buffer, 0, sizeof buffer);
@@ -319,7 +325,13 @@ int main(int argc, char **argv)
         sendSize = 524;
       }
       sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-
+      if(lastPacket == 1) { // after last packet sent, start timer for this window MOVE THIS
+        gettimeofday(&start_time, NULL);
+        fprintf(stderr, "last packet seq %d start time secs:microsecs %ld:%ld\n", 
+          seq_num, start_time.tv_sec, start_time.tv_usec);
+        end_window = seq_num;
+      }
+      
       // if this is the first packet
       if(firstPacket) {
         // if this is a duplicate packet
@@ -361,6 +373,7 @@ int main(int argc, char **argv)
 
     tv.tv_sec = 0;
     tv.tv_usec = 500000;
+    //tv.tv_usec = 10000;
 
     FD_ZERO(&rfds);
     FD_SET(sockfd, &rfds);
@@ -372,7 +385,7 @@ int main(int argc, char **argv)
     while(retval)
     {
       n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
-
+     
       // reset ten second alarm
       alarm(10);
       buffer[n] = '\0';
@@ -412,6 +425,17 @@ int main(int argc, char **argv)
             lastSuccess = serv_ack - resid;
           }
         }
+      
+        struct timeval current_time;
+        gettimeofday(&current_time, NULL);
+        int current_total = current_time.tv_sec + current_time.tv_usec;
+        int start_total = start_time.tv_sec + start_time.tv_usec;
+        // Loss detected from 0.5 timeout: gap where most recent successful ACK < last sent packet
+        if(getPacketTableIndex(lastSuccess) < getPacketTableIndex(endWindow) && 
+          (current_total - start_total > 500000 || start_total - current_total > 500000)) {
+          fprintf(stderr, "packet loss timeout detected lastsuccess = %d endWindow = %d, current %ld:%ld start %ld:%ld\n",
+            lastSuccess, endWindow, current_time.tv_sec, current_time.tv_usec, start_time.tv_sec, start_time.tv_usec);
+        }
 
         if(serv_ack <= sendBase)
         {
@@ -443,18 +467,15 @@ int main(int argc, char **argv)
       }
 
       retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
-
     }
 
 
-    if(sendBase != expAck && packetTable[((sendBase + MAX_SEQ - 512) % MAX_SEQ)/512] < packetTable[((expAck + MAX_SEQ - 512) % MAX_SEQ)/512])
-    {
+    if(sendBase != expAck && packetTable[((sendBase + MAX_SEQ - 512) % MAX_SEQ)/512] < packetTable[((expAck + MAX_SEQ - 512) % MAX_SEQ)/512]) {
       itr = packetTable[sendBase/512];
       fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d, itr = %ld\n", seq_num, sendBase, expAck, serv_ack, itr);
       ssthresh = cwnd/2;
       cwnd = 512;
       dup = 1;
-      
     }
   }
 
@@ -480,7 +501,6 @@ int main(int argc, char **argv)
     printDrop(serv_flag, serv_seq, serv_ack, my_conn);
   } else {
     printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
-    //cwnd = adjustCwnd(cwnd, ssthresh);
     ack_num = (serv_seq+1) % MAX_SEQ;
     // if it was a FIN_ACK, we need to ACK
     if(serv_flag == FIN+ACK) {
