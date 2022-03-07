@@ -46,6 +46,7 @@ class connectionInfo
     char receiveWindow[201][525];
     char receiveValidity[201];
     FILE* filePointer;
+    clock_t lastRecvPacket;
 };
 
 std::vector<connectionInfo> connVector;
@@ -140,6 +141,8 @@ void printRecv(int16_t flag, int32_t cli_seq, int32_t cli_ack, int16_t connectio
       break;
     default: printf("RECV %d %d %d\n", cli_seq, 0, connection);
   }
+
+  fflush(stdout);
 }
 
 // printing DROP message based on flags
@@ -161,6 +164,8 @@ void printDrop(int16_t flag, int32_t cli_seq, int32_t cli_ack, int16_t connectio
       break;
     default: printf("DROP %d %d %d\n", cli_seq, 0, connection);
   }
+
+  fflush(stdout);
 }
 
 int main(int argc, char **argv)
@@ -182,6 +187,7 @@ int main(int argc, char **argv)
   // FILE* filePointer;
   char filename[4096];
   char pathname[4096];
+  char error_msg[] = "ERROR\n";
   fd_set rfds;
   // checking that we have both port number and file dir as args
   if(argc < 3) {
@@ -209,6 +215,8 @@ int main(int argc, char **argv)
       fprintf(stderr, "ERROR: error creating socket - %s\r\n", strerror(errno));
       exit(1);
   }
+
+  fflush(stdout);
 
   memset(&my_addr, 0, sizeof(my_addr));
 	memset(&cli_addr, 0, sizeof(cli_addr));
@@ -281,10 +289,12 @@ int main(int argc, char **argv)
 
         header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, connection_count, SYN+ACK);
         printRecv(cli_flag, cli_seq, cli_ack, 0);
+        fflush(stdout);
 
         // sends SYN ACK, no payload
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
         printf("SEND %d %d %d ACK SYN\n", connVector[ind].seq_num, connVector[ind].ack_num, connection_count);
+        fflush(stdout);
         // increment sequence number and connection
         connVector[ind].seq_num = (connVector[ind].seq_num +1) % MAX_SEQ;
 
@@ -309,15 +319,19 @@ int main(int argc, char **argv)
         }
 
         printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+        fflush(stdout);
         connVector[ind].ack_num = (connVector[ind].ack_num + 1) % MAX_SEQ;
 
         header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN+ACK);
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
         printf("SEND %d %d %d ACK FIN\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
+        fflush(stdout);
+        continue;
       }
       else if(cli_flag == ACK && std::find(finInds.begin(), finInds.end(), ind) != finInds.end())
       {
         printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+        fflush(stdout);
 
         finInds.erase(std::find(finInds.begin(), finInds.end(), ind));
         fclose(connVector[ind].filePointer);
@@ -372,11 +386,24 @@ int main(int argc, char **argv)
         }
 
         printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
+        fflush(stdout);
         // ack_num = (cli_seq+length-12) % MAX_SEQ;
         connVector[ind].ack_num = connVector[ind].nextToWrite;
         header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, ACK);
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
         printf("SEND %d %d %d ACK\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
+        fflush(stdout);
+      }
+
+      connVector[ind].lastRecvPacket = clock();
+      clock_t currTime = clock();
+      for(int i = 0; i < connVector.size(); i++)
+      {
+        if(((connVector[i].lastRecvPacket-currTime)/CLOCKS_PER_SEC) >= 10) {
+          fwrite(error_msg, 1, 6, connVector[i].filePointer);
+          connVector[ind].closeFlag = 1;
+          fclose(connVector[ind].filePointer);
+        }
       }
 
       //Send a FIN ACK
@@ -387,6 +414,7 @@ int main(int argc, char **argv)
           header = makeHeader(connVector[finInds[i]].seq_num, connVector[finInds[i]].ack_num, finInds[i]+1, FIN+ACK);
           sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
           printf("SEND %d %d %d ACK FIN\n", connVector[finInds[i]].seq_num, connVector[finInds[i]].ack_num, finInds[i]+1);
+          fflush(stdout);
         }
       }
     }
@@ -424,3 +452,4 @@ int main(int argc, char **argv)
   close(sockfd);
   exit(0);
 }
+

@@ -272,6 +272,7 @@ int main(int argc, char **argv)
   int expAck = seq_num;
   int dup = 0;
   size_t max_itr_sent = itr;
+  int lastSuccess = (serv_ack - 512 + MAX_SEQ) % MAX_SEQ;
   // while we have 512 byte chunks to send
   while(itr < res) {
     // we set sequence number to the last unacked byte because that is the next one we are sending
@@ -300,7 +301,7 @@ int main(int argc, char **argv)
       if(itr > max_itr_sent)
       {
         max_itr_sent = itr;
-        dup = 0;
+        // dup = 0;
       }
 
       //make packet
@@ -325,24 +326,30 @@ int main(int argc, char **argv)
         // if this is a duplicate packet
         if(dup)
         {
+          dup = 0;
           printf("SEND %d %d %d %d %d ACK DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
+          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         else
         {
           printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
+          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         firstPacket = 0;
       }
       else {
         if(dup)
         {
+          dup = 0;
           printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
+          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         else
         {
           printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
+          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
       }
       
@@ -386,32 +393,32 @@ int main(int argc, char **argv)
         printDrop(serv_flag, serv_seq, serv_ack, my_conn);
       } else {
         // seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
-        ack_num = (serv_seq+1) % MAX_SEQ;
+        // ack_num = (serv_seq+1) % MAX_SEQ;
         printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
         cwnd = adjustCwnd(cwnd, ssthresh);
-
-        int lastSuccess;
         
-        if(lastPacket == 0) {
-          if(serv_ack  < 512)
-          {
-            lastSuccess = serv_ack - 512 + MAX_SEQ;
-          }
-          else
-          {
-            lastSuccess = serv_ack - 512;
-          }
-        } 
-        else {
-          if(serv_ack  < resid)
-          {
-            lastSuccess = serv_ack - resid + MAX_SEQ;
-          }
-          else
-          {
-            lastSuccess = serv_ack - resid;
-          }
-        }
+        // if(lastPacket == 0) {
+        //   if(serv_ack  < 512)
+        //   {
+        //     lastSuccess = serv_ack - 512 + MAX_SEQ;
+        //   }
+        //   else
+        //   {
+        //     lastSuccess = serv_ack - 512;
+        //   }
+        // } 
+        // else {
+        //   if(serv_ack  < resid)
+        //   {
+        //     lastSuccess = serv_ack - resid + MAX_SEQ;
+        //   }
+        //   else
+        //   {
+        //     lastSuccess = serv_ack - resid;
+        //   }
+        // }
+
+        lastSuccess = (serv_ack - 512 + MAX_SEQ) % MAX_SEQ;
 
         if(serv_ack <= sendBase)
         {
@@ -421,6 +428,10 @@ int main(int argc, char **argv)
         // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
 
         if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
+        {
+          sendBase = serv_ack;
+        }
+        else if(serv_ack == expAck)
         {
           sendBase = serv_ack;
         }
@@ -454,7 +465,13 @@ int main(int argc, char **argv)
       ssthresh = cwnd/2;
       cwnd = 512;
       dup = 1;
+
+      fprintf(stderr, "I HAVE BEEN TRIGGERED\n");
       
+    }
+    else if(sendBase != expAck)
+    {
+      itr = packetTable[lastSuccess/512] + 512;
     }
   }
 
@@ -462,6 +479,7 @@ int main(int argc, char **argv)
   header = makeHeader(seq_num, 0, connection, FIN);
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
   printf("SEND %d %d %d %d %d FIN\n", seq_num, 0, connection, cwnd, ssthresh);
+  fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
   seq_num++;
 
   // receive ACK or FIN_ACK
@@ -488,6 +506,7 @@ int main(int argc, char **argv)
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
       printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
+      fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
       seq_num++;
     }
   }
@@ -508,6 +527,7 @@ int main(int argc, char **argv)
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
       printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
+      fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
       seq_num++;
     } else {
       printDrop(serv_flag, serv_seq, serv_ack, connection);
