@@ -32,6 +32,7 @@ class connectionInfo
       writeIndex = ack_num/512;
 
       memset(&receiveWindow, 0, sizeof(receiveWindow));
+      memset(&receiveValidity, 0, sizeof(receiveValidity));
 
       finack = 1;
       extra = 0;
@@ -44,7 +45,7 @@ class connectionInfo
     int extra;
     int closeFlag;
     char receiveWindow[201][525];
-    char receiveValidity[201];
+    int receiveValidity[201];
     FILE* filePointer;
     clock_t lastRecvPacket;
 };
@@ -419,34 +420,6 @@ int main(int argc, char **argv)
       }
     }
 
-    
-
-    // take folder path and connection number and open a file
-    // struct stat stats;
-
-    // sprintf(pathname, ".%s", argv[2]);
-
-    // stat(pathname, &stats);
-
-    // if(!S_ISDIR(stats.st_mode))
-    // {
-    //   mkdir(pathname, 0777);
-    // }
-    
-
-    // int dir_size = strlen(pathname);
-
-    // if(pathname[dir_size-1] == '/')
-    // {
-    //   snprintf(filename, sizeof(filename), ".%s%d.file", argv[2], (connection_count));
-    // }
-    // else
-    // {
-    //   snprintf(filename, sizeof(filename), ".%s/%d.file", argv[2], (connection_count));
-    // }
-
-    // printf("%d\n", writeIndex);
-    // printf("%s\n", receiveWindow[writeIndex]);
   }
 
   close(sockfd);
