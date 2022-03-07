@@ -151,7 +151,7 @@ void printDrop(int16_t flag, int32_t cli_seq, int32_t cli_ack, int16_t connectio
       break;
     case 4: printf("DROP %d %d %d ACK\n", cli_seq, cli_ack, connection);
       break;
-    case 1: printf("DROP %d %d %d FIN\n", cli_seq, 0, connection);
+    case 1: printf("DROP %d %d %d FIN\n", cli_seq, 0, connection);  
       break;
     case 6: printf("DROP %d %d %d ACK SYN\n", cli_seq, cli_ack, connection);
       break;
@@ -314,6 +314,7 @@ int main(int argc, char **argv)
         header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN+ACK);
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
         printf("SEND %d %d %d ACK FIN\n", connVector[ind].seq_num, connVector[ind].ack_num, cli_connection);
+        continue;
       }
       else if(cli_flag == ACK && std::find(finInds.begin(), finInds.end(), ind) != finInds.end())
       {
