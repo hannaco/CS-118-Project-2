@@ -157,13 +157,13 @@ int getPacketTableIndex(int seq_num) { // deal w/ overflow
   return ((seq_num + MAX_SEQ - 512) % MAX_SEQ)/512;
 }
 
-int getTimeDiff(timeval start_time, timeval current_time) { // returns time diff in microsecs
-  int result = (((current_time.tv_sec - start_time.tv_sec) * 1000000) + 
-            (current_time.tv_usec - start_time.tv_usec));
+int getTimeDiff(timeval start_time, timeval curr_time) { // returns time diff in microsecs
+  int result = (((curr_time.tv_sec - start_time.tv_sec) * 1000000) + 
+            (curr_time.tv_usec - start_time.tv_usec));
 
-  fprintf(stderr, "timediff %d, start time %ld:%ld, current time: %ld:%ld\n",
+  fprintf(stderr, "timediff %d, start time %ld:%ld, curr time: %ld:%ld\n",
         result, start_time.tv_sec, start_time.tv_usec,
-        current_time.tv_sec, current_time.tv_usec);
+        curr_time.tv_sec, curr_time.tv_usec);
   return result;
 }
 
@@ -258,7 +258,7 @@ int main(int argc, char **argv)
   // copy ip address from server into servaddr
   memcpy(&servaddr.sin_addr.s_addr, server->h_addr, server->h_length);
 
-  struct timeval current_time;
+  struct timeval syn_curr_time;
   int successfulSYN = -1;
   do { 
     // send SYN to server
@@ -280,8 +280,8 @@ int main(int argc, char **argv)
     int syn_retries = 0;
     while(syn_retval < 1) { // No data received, check for timeout
         syn_retries++;
-        gettimeofday(&current_time, NULL);
-        int timeDiff = getTimeDiff(syn_start_time, current_time);
+        gettimeofday(&syn_curr_time, NULL);
+        int timeDiff = getTimeDiff(syn_start_time, syn_curr_time);
         if(timeDiff > 500000) {
             fprintf(stderr, "SYN timeout detected!!!! syn_retries = %d\n", syn_retries);
             break;
@@ -292,7 +292,7 @@ int main(int argc, char **argv)
     }
     if(syn_retval == 1) { // upon input, set success flag + exit loop
       successfulSYN = 0;
-      break;
+      //break;
     }
   } while (successfulSYN == -1);
   // receive SYN-ACK from server
@@ -430,12 +430,12 @@ int main(int argc, char **argv)
 
     // polling the socket to see if there's anything to read
     int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
-    int startFlag = 0;
     int numRetries = 0;
+    struct timeval curr_time;
     while(retval < 1) { // No data received from server, check for 0.5 second timeout
       numRetries++;
-      gettimeofday(&current_time, NULL);
-      int timeDiff = getTimeDiff(start_time, current_time);
+      gettimeofday(&curr_time, NULL);
+      int timeDiff = getTimeDiff(start_time, curr_time);
       if(timeDiff > 500000) {
           fprintf(stderr, "timeout detected for exp ack%d!!!! numRetries = %d\n", expAck, numRetries);
           fprintf(stderr, "resend from sendbase %d to endwindow %d?\n", sendBase, end_window);
@@ -568,10 +568,11 @@ int main(int argc, char **argv)
 
   int fin_retval = select(sockfd+1, &rfds, NULL, NULL, &fin_timeout);
   int fin_retries = 0;
+  struct timeval fin_curr_time;
   while(fin_retval < 1) { // No data received, check for timeout
       fin_retries++;
-      gettimeofday(&current_time, NULL);
-      int timeDiff = getTimeDiff(fin_start_time, current_time);
+      gettimeofday(&fin_curr_time, NULL);
+      int timeDiff = getTimeDiff(fin_start_time, fin_curr_time);
       if(timeDiff > 500000) {
           fprintf(stderr, "FIN timeout detected!!!! fin_retries = %d\n", fin_retries);
           break;
