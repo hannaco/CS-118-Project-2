@@ -157,6 +157,16 @@ int getPacketTableIndex(int seq_num) { // deal w/ overflow
   return ((seq_num + MAX_SEQ - 512) % MAX_SEQ)/512;
 }
 
+int getTimeDiff(timeval start_time, timeval current_time) { // returns time diff in microsecs
+  int result = (((current_time.tv_sec - start_time.tv_sec) * 1000000) + 
+            (current_time.tv_usec - start_time.tv_usec));
+
+  fprintf(stderr, "timediff %d, start time %ld:%ld, current time: %ld:%ld\n",
+        result, start_time.tv_sec, start_time.tv_usec,
+        current_time.tv_sec, current_time.tv_usec);
+  return result;
+}
+
 int main(int argc, char **argv)
 {
   int i, portnum, n, fileLength;
@@ -249,10 +259,37 @@ int main(int argc, char **argv)
 
   // send SYN to server
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+  struct timeval syn_start_time;
+  gettimeofday(&syn_start_time, NULL);
   // ten second alarm
   alarm(10);
   printf("SEND %d %d %d %d %d SYN\n", seq_num, 0, connection, cwnd, ssthresh);
   seq_num++;
+
+  // check for SYN timeout
+  struct timeval syn_timeout;
+  syn_timeout.tv_sec = 0;
+  syn_timeout.tv_usec = 100000;
+  FD_ZERO(&rfds);
+  FD_SET(sockfd, &rfds);
+
+  int syn_retval = select(sockfd+1, &rfds, NULL, NULL, &syn_timeout);
+  int syn_retries = 0;
+  struct timeval current_time;
+  while(syn_retval < 1 && syn_retries < 5) { // No data received, check for timeout
+      syn_retries++;
+      gettimeofday(&current_time, NULL);
+      int timeDiff = getTimeDiff(syn_start_time, current_time);
+      if(timeDiff > 500000) {
+          fprintf(stderr, "SYN timeout detected!!!! syn_retries = %d\n", syn_retries);
+          break;
+          // TODO: resend everything from sendbase to end_window, adjust cwnd, ssthresh = cwnd/2
+      }
+      syn_timeout.tv_sec = 0;
+      syn_timeout.tv_usec = 100000;
+      syn_retval = select(sockfd+1, &rfds, NULL, NULL, &syn_timeout);
+  }
+
   // receive SYN-ACK from server
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
   // reset ten second alarm
@@ -278,9 +315,10 @@ int main(int argc, char **argv)
   int dup = 0;
   size_t max_itr_sent = itr;
 
-  struct timeval start_time; // for 0.5 second timeout
+  struct timeval start_time; // tracking for 0.5 second timeout
   int end_window = 102401;
 
+  int lastSuccess = (serv_ack - 512 + MAX_SEQ) % MAX_SEQ;
   // while we have 512 byte chunks to send
   while(itr < res) {
     // we set sequence number to the last unacked byte because that is the next one we are sending
@@ -306,8 +344,8 @@ int main(int argc, char **argv)
       if(itr > max_itr_sent)
       {
         max_itr_sent = itr;
-        dup = 0;
-      }      
+        // dup = 0;
+      }
 
       //make packet
       memset(buffer, 0, sizeof buffer);
@@ -325,36 +363,36 @@ int main(int argc, char **argv)
         sendSize = 524;
       }
       sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-      if(lastPacket == 1) { // after last packet sent, start timer for this window MOVE THIS
-        gettimeofday(&start_time, NULL);
-        fprintf(stderr, "last packet seq %d start time secs:microsecs %ld:%ld\n", 
-          seq_num, start_time.tv_sec, start_time.tv_usec);
-        end_window = seq_num;
-      }
       
       // if this is the first packet
       if(firstPacket) {
         // if this is a duplicate packet
         if(dup)
         {
+          dup = 0;
           printf("SEND %d %d %d %d %d ACK DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
+          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         else
         {
           printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
+          // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         firstPacket = 0;
       }
       else {
         if(dup)
         {
+          dup = 0;
           printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d\n", seq_num, sendBase);
+          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         else
         {
           printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
+          //fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
       }
       
@@ -363,6 +401,11 @@ int main(int argc, char **argv)
       bytesSent += (sendSize-12);
       seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
     }
+    // After sending all packets in window, start timer for this window
+    gettimeofday(&start_time, NULL);
+    // fprintf(stderr, "last in window seq %d start time secs:microsecs %ld:%ld\n", 
+    //     seq_num, start_time.tv_sec, start_time.tv_usec);
+    end_window = seq_num;
 
     //update expected ack number
     // expAck = (seq_num + sendSize - 12) % MAX_SEQ;
@@ -370,22 +413,37 @@ int main(int argc, char **argv)
 
     //new additions
     struct timeval tv;
-
     tv.tv_sec = 0;
-    tv.tv_usec = 500000;
-    //tv.tv_usec = 10000;
+    //tv.tv_usec = 500000;
+    tv.tv_usec = 100000;
 
     FD_ZERO(&rfds);
     FD_SET(sockfd, &rfds);
 
     // polling the socket to see if there's anything to read
     int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+    int startFlag = 0;
+    int numRetries = 0;
+    while(retval < 1 && numRetries < 5) { // No data received from server, check for 0.5 second timeout
+      numRetries++;
+      gettimeofday(&current_time, NULL);
+      int timeDiff = getTimeDiff(start_time, current_time);
+      if(timeDiff > 500000) {
+          fprintf(stderr, "timeout detected for exp ack%d!!!! numRetries = %d\n", expAck, numRetries);
+          fprintf(stderr, "resend from sendbase %d to endwindow %d?\n", sendBase, end_window);
+          break;
+          // TODO: resend everything from sendbase to end_window, adjust cwnd, ssthresh = cwnd/2
+      }
 
+      tv.tv_sec = 0;
+      tv.tv_usec = 100000;
+      retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+    }
     // while there is data to read
     while(retval)
     {
       n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
-     
+        
       // reset ten second alarm
       alarm(10);
       buffer[n] = '\0';
@@ -399,43 +457,32 @@ int main(int argc, char **argv)
         printDrop(serv_flag, serv_seq, serv_ack, my_conn);
       } else {
         // seq_num = (seq_num + sendSize - 12) % MAX_SEQ;
-        ack_num = (serv_seq+1) % MAX_SEQ;
+        // ack_num = (serv_seq+1) % MAX_SEQ;
         printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
         cwnd = adjustCwnd(cwnd, ssthresh);
-
-        int lastSuccess;
         
-        if(lastPacket == 0) {
-          if(serv_ack  < 512)
-          {
-            lastSuccess = serv_ack - 512 + MAX_SEQ;
-          }
-          else
-          {
-            lastSuccess = serv_ack - 512;
-          }
-        } 
-        else {
-          if(serv_ack  < resid)
-          {
-            lastSuccess = serv_ack - resid + MAX_SEQ;
-          }
-          else
-          {
-            lastSuccess = serv_ack - resid;
-          }
-        }
-      
-        struct timeval current_time;
-        gettimeofday(&current_time, NULL);
-        int current_total = current_time.tv_sec + current_time.tv_usec;
-        int start_total = start_time.tv_sec + start_time.tv_usec;
-        // Loss detected from 0.5 timeout: gap where most recent successful ACK < last sent packet
-        if(getPacketTableIndex(lastSuccess) < getPacketTableIndex(endWindow) && 
-          (current_total - start_total > 500000 || start_total - current_total > 500000)) {
-          fprintf(stderr, "packet loss timeout detected lastsuccess = %d endWindow = %d, current %ld:%ld start %ld:%ld\n",
-            lastSuccess, endWindow, current_time.tv_sec, current_time.tv_usec, start_time.tv_sec, start_time.tv_usec);
-        }
+        // if(lastPacket == 0) {
+        //   if(serv_ack  < 512)
+        //   {
+        //     lastSuccess = serv_ack - 512 + MAX_SEQ;
+        //   }
+        //   else
+        //   {
+        //     lastSuccess = serv_ack - 512;
+        //   }
+        // } 
+        // else {
+        //   if(serv_ack  < resid)
+        //   {
+        //     lastSuccess = serv_ack - resid + MAX_SEQ;
+        //   }
+        //   else
+        //   {
+        //     lastSuccess = serv_ack - resid;
+        //   }
+        // }
+
+        lastSuccess = (serv_ack - 512 + MAX_SEQ) % MAX_SEQ;
 
         if(serv_ack <= sendBase)
         {
@@ -445,6 +492,10 @@ int main(int argc, char **argv)
         // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
 
         if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
+        {
+          sendBase = serv_ack;
+        }
+        else if(serv_ack == expAck)
         {
           sendBase = serv_ack;
         }
@@ -475,7 +526,11 @@ int main(int argc, char **argv)
       fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d, itr = %ld\n", seq_num, sendBase, expAck, serv_ack, itr);
       ssthresh = cwnd/2;
       cwnd = 512;
-      dup = 1;
+      dup = 1;      
+    }
+    else if(sendBase != expAck)
+    {
+      itr = packetTable[lastSuccess/512] + 512;
     }
   }
 
@@ -483,6 +538,7 @@ int main(int argc, char **argv)
   header = makeHeader(seq_num, 0, connection, FIN);
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
   printf("SEND %d %d %d %d %d FIN\n", seq_num, 0, connection, cwnd, ssthresh);
+  //fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
   seq_num++;
 
   // receive ACK or FIN_ACK
@@ -508,6 +564,7 @@ int main(int argc, char **argv)
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
       printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
+      // seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
       seq_num++;
     }
   }
@@ -528,6 +585,7 @@ int main(int argc, char **argv)
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
       printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
+      //fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
       seq_num++;
     } else {
       printDrop(serv_flag, serv_seq, serv_ack, connection);
