@@ -17,6 +17,43 @@
 
 #define MAX_SIZE 524
 #define MAX_SEQ 102401
+#define MAX_RWND 51200
+
+class bufferedPacket
+{
+  public:
+    bufferedPacket()
+    {
+      ack_num = 0;
+      size = 0;
+      memset(&data, 0, sizeof(data));
+      valid = false;
+    }
+    bufferedPacket(int32_t seqNum, int length)
+    {
+      ack_num = (seqNum + length) % MAX_SEQ;
+      size = length;
+      memset(&data, 0, sizeof(data));
+      valid = false;
+    }
+
+    void invalidate()
+    {
+      size = 0;
+      memset(&data, 0, sizeof(data));
+      valid = false;
+    }
+
+    void validate()
+    {
+      valid = true;
+    }
+
+    int32_t ack_num; 
+    int size;
+    char data[513];
+    bool valid;
+};
 
 class connectionInfo
 {
@@ -29,10 +66,14 @@ class connectionInfo
       ack_num = (cli_seq+1) % MAX_SEQ;
 
       nextToWrite = ack_num;
-      writeIndex = ack_num/512;
 
-      memset(&receiveWindow, 0, sizeof(receiveWindow));
-      memset(&receiveValidity, 0, sizeof(receiveValidity));
+      for (int i = 0; i < MAX_SEQ; i++)
+      {
+          bufferedPacket newBuf = bufferedPacket();
+          recvBuf.push_back(newBuf);
+      }
+
+      //fprintf(stderr, "BUFFER SIZE: %ld.\n",recvBuf.size());
 
       finack = 1;
       extra = 0;
@@ -40,12 +81,10 @@ class connectionInfo
     }
     int32_t ack_num, seq_num;
     int nextToWrite;
-    int writeIndex;
+    std::vector<bufferedPacket> recvBuf;
     int finack;
     int extra;
     int closeFlag;
-    char receiveWindow[201][525];
-    int receiveValidity[201];
     FILE* filePointer;
     clock_t lastRecvPacket;
 };
@@ -155,7 +194,7 @@ void printDrop(int16_t flag, int32_t cli_seq, int32_t cli_ack, int16_t connectio
       break;
     case 4: printf("DROP %d %d %d ACK\n", cli_seq, cli_ack, connection);
       break;
-    case 1: printf("DROP %d %d %d FIN\n", cli_seq, 0, connection);  
+    case 1: printf("DROP %d %d %d FIN\n", cli_seq, 0, connection);
       break;
     case 6: printf("DROP %d %d %d ACK SYN\n", cli_seq, cli_ack, connection);
       break;
@@ -321,7 +360,7 @@ int main(int argc, char **argv)
 
         printRecv(cli_flag, cli_seq, cli_ack, cli_connection);
         fflush(stdout);
-        connVector[ind].ack_num = (connVector[ind].ack_num + 1) % MAX_SEQ;
+        connVector[ind].ack_num = (cli_seq + 1) % MAX_SEQ;
 
         header = makeHeader(connVector[ind].seq_num, connVector[ind].ack_num, cli_connection, FIN+ACK);
         sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &cli_addr, sz);
@@ -344,44 +383,42 @@ int main(int argc, char **argv)
         if(cli_seq == connVector[ind].nextToWrite)
         {
           fwrite(buffer+12, 1, length-12, connVector[ind].filePointer);
-          // fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, writeIndex = %d\n", nextToWrite, writeIndex);
-          // the next sequence number we should be writing
+          connVector[ind].recvBuf[connVector[ind].nextToWrite].invalidate();
           connVector[ind].nextToWrite = (cli_seq+length-12) % MAX_SEQ;
-          // index of the array that we should be writing frmo
-          connVector[ind].writeIndex = connVector[ind].nextToWrite/512;
-          while(connVector[ind].receiveValidity[connVector[ind].writeIndex] != 0) {
-            // while(connVector[ind].extra != 0) {
-            //fprintf(stderr, "WRITING PACKET WITH seq_num = %d, writeIndex = %d\n", connVector[ind].nextToWrite, connVector[ind].writeIndex);
-            fwrite(connVector[ind].receiveWindow[connVector[ind].writeIndex], 1, connVector[ind].receiveValidity[connVector[ind].writeIndex], connVector[ind].filePointer);
-            // fputs(receiveWindow[writeIndex], filePointer);
-            memset(connVector[ind].receiveWindow[connVector[ind].writeIndex],0,sizeof(connVector[ind].receiveWindow[connVector[ind].writeIndex]));
-            connVector[ind].receiveValidity[connVector[ind].writeIndex] = 0;
+          //fprintf(stderr, "WRITING PACKET WITH cli_seq = %d, nextToWrite = %d\n", cli_seq, connVector[ind].nextToWrite);
+        
+          while(connVector[ind].recvBuf[connVector[ind].nextToWrite].valid)
+          {
+            //fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, ack_num = %d\n", connVector[ind].nextToWrite, connVector[ind].recvBuf[connVector[ind].nextToWrite].ack_num);
+            int size = connVector[ind].recvBuf[connVector[ind].nextToWrite].size;
+            fwrite(connVector[ind].recvBuf[connVector[ind].nextToWrite].data, 1, connVector[ind].recvBuf[connVector[ind].nextToWrite].size, connVector[ind].filePointer);
+            
+            connVector[ind].recvBuf[connVector[ind].nextToWrite].invalidate();
             // update the indices
-            connVector[ind].nextToWrite = (connVector[ind].nextToWrite+512) % MAX_SEQ;
-            connVector[ind].writeIndex = connVector[ind].nextToWrite/512;
-            // nextToWrite = ((writeIndex*512)+length-12) % MAX_SEQ;
-            // connVector[ind].extra--;
+            connVector[ind].nextToWrite = (connVector[ind].nextToWrite+size) % MAX_SEQ;
+
           }
-          // printf("%d\n", writeIndex);
-          // printf("%d\n", nextToWrite);
+
         } 
         else {
-          int endRWNDInd = (connVector[ind].writeIndex+100)%201;
-          int receivedInd = cli_seq/512;
-          if(endRWNDInd < connVector[ind].writeIndex){
-            if(receivedInd >= connVector[ind].writeIndex || receivedInd < endRWNDInd) {
-              memcpy(connVector[ind].receiveWindow[cli_seq/512], buffer+12, length-12);
-              // strcpy(buffer+12, receiveWindow[cli_seq/512]);
-              connVector[ind].receiveValidity[cli_seq/512] = length-12;
-              // connVector[ind].extra++;
+          int recvWndEnd = (connVector[ind].nextToWrite + MAX_RWND)%MAX_SEQ;
+          int packEnd = (cli_seq + length - 12) % MAX_SEQ;
+          if(recvWndEnd < connVector[ind].nextToWrite )
+          {
+            if((cli_seq > connVector[ind].nextToWrite || cli_seq  < recvWndEnd) && (packEnd > connVector[ind].nextToWrite || packEnd  <= recvWndEnd))
+            {
+              connVector[ind].recvBuf[cli_seq] = bufferedPacket(cli_seq, length-12);
+              memcpy(connVector[ind].recvBuf[cli_seq].data, buffer+12, length-12);
+              connVector[ind].recvBuf[cli_seq].validate();
             }
           }
-          else {
-            if(receivedInd >= connVector[ind].writeIndex && receivedInd < endRWNDInd){
-              memcpy(connVector[ind].receiveWindow[cli_seq/512], buffer+12, length-12);
-              connVector[ind].receiveValidity[cli_seq/512] = length-12;
-              // strcpy(buffer+12, receiveWindow[cli_seq/512]);
-              // connVector[ind].extra++;
+          else
+          {
+            if((cli_seq > connVector[ind].nextToWrite && packEnd  <= recvWndEnd))
+            {
+              connVector[ind].recvBuf[cli_seq] = bufferedPacket(cli_seq, length-12);
+              memcpy(connVector[ind].recvBuf[cli_seq].data, buffer+12, length-12);
+              connVector[ind].recvBuf[cli_seq].validate();
             }
           }
         }
@@ -425,4 +462,3 @@ int main(int argc, char **argv)
   close(sockfd);
   exit(0);
 }
-

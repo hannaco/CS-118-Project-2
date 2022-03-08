@@ -186,7 +186,8 @@ int main(int argc, char **argv)
   struct sockaddr_in servaddr;
   int cwnd = 512;
   int ssthresh = 10000;
-  int packetTable[201] = {0};
+  int packetTable[201] = {-1};
+  int ackTable[MAX_SEQ] = {-1};
   fd_set rfds;
   int firstPacket = 1;
   int lastPacket = 0;
@@ -257,40 +258,46 @@ int main(int argc, char **argv)
   // copy ip address from server into servaddr
   memcpy(&servaddr.sin_addr.s_addr, server->h_addr, server->h_length);
 
-  // send SYN to server
-  sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-  struct timeval syn_start_time;
-  gettimeofday(&syn_start_time, NULL);
-  // ten second alarm
-  alarm(10);
-  printf("SEND %d %d %d %d %d SYN\n", seq_num, 0, connection, cwnd, ssthresh);
-  seq_num++;
-
-  // check for SYN timeout
-  struct timeval syn_timeout;
-  syn_timeout.tv_sec = 0;
-  syn_timeout.tv_usec = 100000;
-  FD_ZERO(&rfds);
-  FD_SET(sockfd, &rfds);
-
-  int syn_retval = select(sockfd+1, &rfds, NULL, NULL, &syn_timeout);
-  int syn_retries = 0;
   struct timeval current_time;
-  while(syn_retval < 1 && syn_retries < 5) { // No data received, check for timeout
-      syn_retries++;
-      gettimeofday(&current_time, NULL);
-      int timeDiff = getTimeDiff(syn_start_time, current_time);
-      if(timeDiff > 500000) {
-          fprintf(stderr, "SYN timeout detected!!!! syn_retries = %d\n", syn_retries);
-          break;
-      }
-      syn_timeout.tv_sec = 0;
-      syn_timeout.tv_usec = 100000;
-      syn_retval = select(sockfd+1, &rfds, NULL, NULL, &syn_timeout);
-  }
+  int successfulSYN = -1;
+  do { 
+    // send SYN to server
+    sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+    struct timeval syn_start_time;
+    gettimeofday(&syn_start_time, NULL);
+    // ten second alarm
+    alarm(10);
+    printf("SEND %d %d %d %d %d SYN\n", seq_num, 0, connection, cwnd, ssthresh);
 
+    // check for SYN timeout
+    struct timeval syn_timeout;
+    syn_timeout.tv_sec = 0;
+    syn_timeout.tv_usec = 100000;
+    FD_ZERO(&rfds);
+    FD_SET(sockfd, &rfds);
+
+    int syn_retval = select(sockfd+1, &rfds, NULL, NULL, &syn_timeout);
+    int syn_retries = 0;
+    while(syn_retval < 1) { // No data received, check for timeout
+        syn_retries++;
+        gettimeofday(&current_time, NULL);
+        int timeDiff = getTimeDiff(syn_start_time, current_time);
+        if(timeDiff > 500000) {
+            fprintf(stderr, "SYN timeout detected!!!! syn_retries = %d\n", syn_retries);
+            break;
+        }
+        syn_timeout.tv_sec = 0;
+        syn_timeout.tv_usec = 100000;
+        syn_retval = select(sockfd+1, &rfds, NULL, NULL, &syn_timeout);
+    }
+    if(syn_retval == 1) { // upon input, set success flag + exit loop
+      successfulSYN = 0;
+      break;
+    }
+  } while (successfulSYN == -1);
   // receive SYN-ACK from server
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
+  seq_num++; // MOVED
   // reset ten second alarm
   alarm(10);
   buffer[n] = '\0';
@@ -362,7 +369,9 @@ int main(int argc, char **argv)
         sendSize = 524;
       }
       sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-      
+
+      ackTable[(seq_num + sendSize - 12) % MAX_SEQ] = itr;
+
       // if this is the first packet
       if(firstPacket) {
         // if this is a duplicate packet
@@ -423,7 +432,7 @@ int main(int argc, char **argv)
     int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
     int startFlag = 0;
     int numRetries = 0;
-    while(retval < 1 && numRetries < 5) { // No data received from server, check for 0.5 second timeout
+    while(retval < 1) { // No data received from server, check for 0.5 second timeout
       numRetries++;
       gettimeofday(&current_time, NULL);
       int timeDiff = getTimeDiff(start_time, current_time);
@@ -431,7 +440,6 @@ int main(int argc, char **argv)
           fprintf(stderr, "timeout detected for exp ack%d!!!! numRetries = %d\n", expAck, numRetries);
           fprintf(stderr, "resend from sendbase %d to endwindow %d?\n", sendBase, end_window);
           break;
-          // TODO: resend everything from sendbase to end_window, adjust cwnd, ssthresh = cwnd/2
       }
 
       tv.tv_sec = 0;
@@ -490,11 +498,19 @@ int main(int argc, char **argv)
 
         // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
 
-        if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
-        {
-          sendBase = serv_ack;
-        }
-        else if(serv_ack == expAck)
+        // if(packetTable[lastSuccess/512] != -1 && packetTable[lastSuccess/512] >= packetTable[sendBase/512])
+        // {
+        //   sendBase = serv_ack;
+        // }
+        // else if(serv_ack == expAck)
+        // {
+        //   sendBase = serv_ack;
+        // }
+        // else
+        // {
+        //   fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
+        // }
+        if(ackTable[serv_ack] != -1 && ackTable[serv_ack] >= packetTable[sendBase/512])
         {
           sendBase = serv_ack;
         }
@@ -518,9 +534,10 @@ int main(int argc, char **argv)
 
       retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
     }
-c
 
-    if(sendBase != expAck && packetTable[((sendBase + MAX_SEQ - 512) % MAX_SEQ)/512] < packetTable[((expAck + MAX_SEQ - 512) % MAX_SEQ)/512]) {
+
+    if(sendBase != expAck && ackTable[serv_ack] < ackTable[expAck])
+    {
       itr = packetTable[sendBase/512];
       fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d, itr = %ld\n", seq_num, sendBase, expAck, serv_ack, itr);
       ssthresh = cwnd/2;
@@ -529,7 +546,7 @@ c
     }
     else if(sendBase != expAck)
     {
-      itr = packetTable[lastSuccess/512] + 512;
+      itr = ackTable[serv_ack] + 512;
     }
   }
 
@@ -551,12 +568,12 @@ c
 
   int fin_retval = select(sockfd+1, &rfds, NULL, NULL, &fin_timeout);
   int fin_retries = 0;
-  while(fin_retval < 1 && fin_retries < 5) { // No data received, check for timeout
+  while(fin_retval < 1) { // No data received, check for timeout
       fin_retries++;
       gettimeofday(&current_time, NULL);
       int timeDiff = getTimeDiff(fin_start_time, current_time);
       if(timeDiff > 500000) {
-          fprintf(stderr, "FIN timeout detected!!!! fin_retries = %d\n", syn_retries);
+          fprintf(stderr, "FIN timeout detected!!!! fin_retries = %d\n", fin_retries);
           break;
       }
       fin_timeout.tv_sec = 0;
