@@ -171,7 +171,8 @@ int main(int argc, char **argv)
   struct sockaddr_in servaddr;
   int cwnd = 512;
   int ssthresh = 10000;
-  int packetTable[201] = {0};
+  int packetTable[201] = {-1};
+  int ackTable[MAX_SEQ] = {-1};
   fd_set rfds;
   int firstPacket = 1;
   int lastPacket = 0;
@@ -321,6 +322,8 @@ int main(int argc, char **argv)
       }
       sendto(sockfd, (const char *)buffer, sendSize, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
 
+      ackTable[(seq_num + sendSize - 12) % MAX_SEQ] = itr;
+
       // if this is the first packet
       if(firstPacket) {
         // if this is a duplicate packet
@@ -427,11 +430,19 @@ int main(int argc, char **argv)
 
         // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
 
-        if(packetTable[lastSuccess/512] >= packetTable[sendBase/512])
-        {
-          sendBase = serv_ack;
-        }
-        else if(serv_ack == expAck)
+        // if(packetTable[lastSuccess/512] != -1 && packetTable[lastSuccess/512] >= packetTable[sendBase/512])
+        // {
+        //   sendBase = serv_ack;
+        // }
+        // else if(serv_ack == expAck)
+        // {
+        //   sendBase = serv_ack;
+        // }
+        // else
+        // {
+        //   fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
+        // }
+        if(ackTable[serv_ack] != -1 && ackTable[serv_ack] >= packetTable[sendBase/512])
         {
           sendBase = serv_ack;
         }
@@ -458,7 +469,7 @@ int main(int argc, char **argv)
     }
 
 
-    if(sendBase != expAck && packetTable[((sendBase + MAX_SEQ - 512) % MAX_SEQ)/512] < packetTable[((expAck + MAX_SEQ - 512) % MAX_SEQ)/512])
+    if(sendBase != expAck && ackTable[serv_ack] < ackTable[expAck])
     {
       itr = packetTable[sendBase/512];
       fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d, itr = %ld\n", seq_num, sendBase, expAck, serv_ack, itr);
@@ -471,7 +482,7 @@ int main(int argc, char **argv)
     }
     else if(sendBase != expAck)
     {
-      itr = packetTable[lastSuccess/512] + 512;
+      itr = ackTable[serv_ack] + 512;
     }
   }
 
