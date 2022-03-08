@@ -176,7 +176,8 @@ int main(int argc, char **argv)
   fd_set rfds;
   int firstPacket = 1;
   int lastPacket = 0;
-  int resid;
+  int resid, retval;
+  struct timeval tv;
 
   // checking that we have both port number and file dir as args
   if(argc < 4) {
@@ -243,25 +244,41 @@ int main(int argc, char **argv)
   // copy ip address from server into servaddr
   memcpy(&servaddr.sin_addr.s_addr, server->h_addr, server->h_length);
 
-  // send SYN to server
-  sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
-  // ten second alarm
-  alarm(10);
-  printf("SEND %d %d %d %d %d SYN\n", seq_num, 0, connection, cwnd, ssthresh);
-  seq_num++;
-  // receive SYN-ACK from server
-  n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
-  // reset ten second alarm
-  alarm(10);
-  buffer[n] = '\0';
-  // decoding the header
-  serv_seq = getSeq(buffer);
-  serv_ack = getAck(buffer);
-  serv_flag = getFlags(buffer);
-  connection = getConnection(buffer);
-  my_conn = connection;
-  printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+    while(my_conn == 0){
+    // send SYN to server
+    sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+    // ten second alarm
+    alarm(10);
+    printf("SEND %d %d %d %d %d SYN\n", seq_num, 0, connection, cwnd, ssthresh);
 
+    // while(my_conn == 0 && difftime(currTime, lastSentPacket) < 0.5){
+    tv.tv_sec = 0;
+    tv.tv_usec = 500000;
+
+    FD_ZERO(&rfds);
+    FD_SET(sockfd, &rfds);
+
+    // polling the socket to see if there's anything to read
+    retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+    while(retval){
+      // receive SYN-ACK from server
+      n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);
+      // reset ten second alarm
+      alarm(10);
+      buffer[n] = '\0';
+      // decoding the header
+      serv_seq = getSeq(buffer);
+      serv_ack = getAck(buffer);
+      serv_flag = getFlags(buffer);
+      connection = getConnection(buffer);
+      my_conn = connection;
+      printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
+      break;
+    }
+  }
+
+  // setting SEQ
+  seq_num++;
   // setting ACK
   ack_num = (serv_seq+1) % MAX_SEQ;
   resid = res % 512;
@@ -331,13 +348,13 @@ int main(int argc, char **argv)
         {
           dup = 0;
           printf("SEND %d %d %d %d %d ACK DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
-          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          // fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         else
         {
           printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
-          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         firstPacket = 0;
       }
@@ -346,13 +363,13 @@ int main(int argc, char **argv)
         {
           dup = 0;
           printf("SEND %d %d %d %d %d DUP\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
-          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          // fprintf(stderr, "DUP PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
         else
         {
           printf("SEND %d %d %d %d %d\n", seq_num, 0, connection, cwnd, ssthresh);
-          fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+          // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
         }
       }
       
@@ -366,9 +383,6 @@ int main(int argc, char **argv)
     // expAck = (seq_num + sendSize - 12) % MAX_SEQ;
     expAck = seq_num;
 
-    //new additions
-    struct timeval tv;
-
     tv.tv_sec = 0;
     tv.tv_usec = 500000;
 
@@ -376,7 +390,7 @@ int main(int argc, char **argv)
     FD_SET(sockfd, &rfds);
 
     // polling the socket to see if there's anything to read
-    int retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
+    retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
 
     // while there is data to read
     while(retval)
@@ -399,56 +413,21 @@ int main(int argc, char **argv)
         // ack_num = (serv_seq+1) % MAX_SEQ;
         printRecv(serv_flag, serv_seq, serv_ack, connection, cwnd, ssthresh);
         cwnd = adjustCwnd(cwnd, ssthresh);
-        
-        // if(lastPacket == 0) {
-        //   if(serv_ack  < 512)
-        //   {
-        //     lastSuccess = serv_ack - 512 + MAX_SEQ;
-        //   }
-        //   else
-        //   {
-        //     lastSuccess = serv_ack - 512;
-        //   }
-        // } 
-        // else {
-        //   if(serv_ack  < resid)
-        //   {
-        //     lastSuccess = serv_ack - resid + MAX_SEQ;
-        //   }
-        //   else
-        //   {
-        //     lastSuccess = serv_ack - resid;
-        //   }
-        // }
 
         lastSuccess = (serv_ack - 512 + MAX_SEQ) % MAX_SEQ;
 
         if(serv_ack <= sendBase)
         {
-          fprintf(stderr, "GREATER OR EQUAL ACK serv_ack = %d, sendBase= %d, lastSuccess= %d\n", serv_ack, sendBase, lastSuccess);
+          // fprintf(stderr, "GREATER OR EQUAL ACK serv_ack = %d, sendBase= %d, lastSuccess= %d\n", serv_ack, sendBase, lastSuccess);
         }
 
-        // fprintf(stderr, "INDICES serv_ack ind = %d, sendBase ind = %d\n", serv_ack/512, sendBase/512);
-
-        // if(packetTable[lastSuccess/512] != -1 && packetTable[lastSuccess/512] >= packetTable[sendBase/512])
-        // {
-        //   sendBase = serv_ack;
-        // }
-        // else if(serv_ack == expAck)
-        // {
-        //   sendBase = serv_ack;
-        // }
-        // else
-        // {
-        //   fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
-        // }
         if(ackTable[serv_ack] != -1 && ackTable[serv_ack] >= packetTable[sendBase/512])
         {
           sendBase = serv_ack;
         }
         else
         {
-          fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
+          // fprintf(stderr, "OUT OF ORDER ACK serv_ack = %d, sendBase= %d, server itr = %d, sendBase itr = %d\n", serv_ack, sendBase, packetTable[lastSuccess/512],packetTable[sendBase/512] );
         }
       }
 
@@ -472,12 +451,12 @@ int main(int argc, char **argv)
     if(sendBase != expAck && ackTable[serv_ack] < ackTable[expAck])
     {
       itr = packetTable[sendBase/512];
-      fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d, itr = %ld\n", seq_num, sendBase, expAck, serv_ack, itr);
+      // fprintf(stderr, "MISSING ACK for seq num = %d, sendBase= %d, and expAck = %d, last serv ack = %d, itr = %ld\n", seq_num, sendBase, expAck, serv_ack, itr);
       ssthresh = cwnd/2;
       cwnd = 512;
       dup = 1;
 
-      fprintf(stderr, "I HAVE BEEN TRIGGERED\n");
+      // fprintf(stderr, "I HAVE BEEN TRIGGERED\n");
       
     }
     else if(sendBase != expAck)
@@ -490,7 +469,7 @@ int main(int argc, char **argv)
   header = makeHeader(seq_num, 0, connection, FIN);
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
   printf("SEND %d %d %d %d %d FIN\n", seq_num, 0, connection, cwnd, ssthresh);
-  fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+  // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
   seq_num++;
 
   // receive ACK or FIN_ACK
@@ -517,7 +496,7 @@ int main(int argc, char **argv)
       header = makeHeader(seq_num, ack_num, connection, ACK);
       sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
       printf("SEND %d %d %d %d %d ACK\n", seq_num, ack_num, connection, cwnd, ssthresh);
-      fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
+      // fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
       seq_num++;
     }
   }

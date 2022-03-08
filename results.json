@@ -1,0 +1,158 @@
+{
+    "tests": [
+        {
+            "name": "2.1. Client initiates three-way handshake by sending a SYN packet with correct values in its header",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.10. Client properly increases congestion window size in congestion avoidance phase",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "2.11. Client detects and retransmits lost data segments",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.12. Client sets SS-THRESH and CWND values properly after timeout",
+            "score": 0.0,
+            "max_score": 5,
+            "output": "Test Failed: 3584.0 != 3840 within 0 places (256.0 difference) : Incorrect setting for SSTHRESH adjustment after timeout (3584 != 3840)\n",
+            "visibility": "visible"
+        },
+        {
+            "name": "2.2. Client has correct initial values for CWND, SS-THRESH, and Sequence Number",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.3. Data segments that client sends are not exceeding 512 bytes and on average larger than 500 bytes (for 1~MByte file)",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.4 Client should reset its sequence number to zero when the sequence number reaches the maximum value",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.5. Client sends a FIN packet after transmitting a file",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.6. After finishing connection, client responds with ACK for incoming FINs for 2 seconds, dropping packets for this connection afterwards",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "2.7. Client successfully transmits a small file",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "2.8. Client aborts the connection if no incoming packets for more than 10 seconds",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "2.9. Client properly increases congestion window size in slow start phase",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "visible"
+        },
+        {
+            "name": "1.1. At least 3 git commits (at least one from each group member)",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "1.2. Client handles incorrect hostname",
+            "score": 1.25,
+            "max_score": 1.25,
+            "visibility": "visible"
+        },
+        {
+            "name": "1.3. Client handles incorrect port",
+            "score": 1.25,
+            "max_score": 1.25,
+            "visibility": "visible"
+        },
+        {
+            "name": "1.4. Server handles incorrect port",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "3.1. Server responses with SYN-ACK packet with correct connection ID",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "3.2. Server has correct initial values for CWND, SS-THRESH, and Sequence Number",
+            "score": 2.5,
+            "max_score": 2.5,
+            "visibility": "visible"
+        },
+        {
+            "name": "3.3. Server responds with ACK packets, which include the next expected in-sequence byte to receive (cumulative ACK)",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "visible"
+        },
+        {
+            "name": "3.4. Server able to receive a large file (10 MiB bytes) and save it in 1.file without delay, loss, and reorder",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "3.5. Server able to receive a large file (10 MiB bytes) and save it in 1.file (with reordered and delayed packets)",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "3.6. Server able to receive 10 small files (1 MiB bytes) in 1.file, 2.file, ..., 10.file without delay, loss, and reorder (sequentially)",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "visible"
+        },
+        {
+            "name": "3.7. Server able to receive 10 small files (1 MiB bytes) in 1.file, 2.file, ..., 10.file without delay, loss, and reorder (in parallel)",
+            "score": 5,
+            "max_score": 5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "3.8. Server able to receive 10 small files (1 MiB bytes) in 1.file, 2.file, ..., 10.file over lossy and large delay network (sequentially)",
+            "score": 7.5,
+            "max_score": 7.5,
+            "visibility": "after_published"
+        },
+        {
+            "name": "3.9. Server able to receive 10 small files (1 MiB bytes) in 1.file, 2.file, ..., 10.file over lossy and large delay network (in parallel)",
+            "score": 7.5,
+            "max_score": 7.5,
+            "visibility": "after_published"
+        }
+    ],
+    "leaderboard": [],
+    "execution_time": "262.32",
+    "score": 95.0
+}

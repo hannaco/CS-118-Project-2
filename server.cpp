@@ -73,7 +73,7 @@ class connectionInfo
           recvBuf.push_back(newBuf);
       }
 
-      fprintf(stderr, "BUFFER SIZE: %ld.\n",recvBuf.size());
+    //   fprintf(stderr, "BUFFER SIZE: %ld.\n",recvBuf.size());
 
       finack = 1;
       extra = 0;
@@ -385,11 +385,11 @@ int main(int argc, char **argv)
           fwrite(buffer+12, 1, length-12, connVector[ind].filePointer);
           connVector[ind].recvBuf[connVector[ind].nextToWrite].invalidate();
           connVector[ind].nextToWrite = (cli_seq+length-12) % MAX_SEQ;
-          fprintf(stderr, "WRITING PACKET WITH cli_seq = %d, nextToWrite = %d\n", cli_seq, connVector[ind].nextToWrite);
+        //   fprintf(stderr, "WRITING PACKET WITH cli_seq = %d, nextToWrite = %d\n", cli_seq, connVector[ind].nextToWrite);
         
           while(connVector[ind].recvBuf[connVector[ind].nextToWrite].valid)
           {
-            fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, ack_num = %d\n", connVector[ind].nextToWrite, connVector[ind].recvBuf[connVector[ind].nextToWrite].ack_num);
+            // fprintf(stderr, "WRITING PACKET WITH nextToWrite = %d, ack_num = %d\n", connVector[ind].nextToWrite, connVector[ind].recvBuf[connVector[ind].nextToWrite].ack_num);
             int size = connVector[ind].recvBuf[connVector[ind].nextToWrite].size;
             fwrite(connVector[ind].recvBuf[connVector[ind].nextToWrite].data, 1, connVector[ind].recvBuf[connVector[ind].nextToWrite].size, connVector[ind].filePointer);
             
