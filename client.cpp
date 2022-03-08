@@ -283,7 +283,6 @@ int main(int argc, char **argv)
       if(timeDiff > 500000) {
           fprintf(stderr, "SYN timeout detected!!!! syn_retries = %d\n", syn_retries);
           break;
-          // TODO: resend everything from sendbase to end_window, adjust cwnd, ssthresh = cwnd/2
       }
       syn_timeout.tv_sec = 0;
       syn_timeout.tv_usec = 100000;
@@ -519,7 +518,7 @@ int main(int argc, char **argv)
 
       retval = select(sockfd+1, &rfds, NULL, NULL, &tv);
     }
-
+c
 
     if(sendBase != expAck && packetTable[((sendBase + MAX_SEQ - 512) % MAX_SEQ)/512] < packetTable[((expAck + MAX_SEQ - 512) % MAX_SEQ)/512]) {
       itr = packetTable[sendBase/512];
@@ -537,9 +536,33 @@ int main(int argc, char **argv)
   // send FIN
   header = makeHeader(seq_num, 0, connection, FIN);
   sendto(sockfd, (const char *)header, 12, 0, (const struct sockaddr *) &servaddr,  sizeof(servaddr));
+  struct timeval fin_start_time;
+  gettimeofday(&fin_start_time, NULL);
   printf("SEND %d %d %d %d %d FIN\n", seq_num, 0, connection, cwnd, ssthresh);
   //fprintf(stderr, "SEND PACKET: seq_num = %d, sendBase= %d, itr = %ld\n", seq_num, sendBase, itr);
   seq_num++;
+
+  // check for FIN timeout
+  struct timeval fin_timeout;
+  fin_timeout.tv_sec = 0;
+  fin_timeout.tv_usec = 100000;
+  FD_ZERO(&rfds);
+  FD_SET(sockfd, &rfds);
+
+  int fin_retval = select(sockfd+1, &rfds, NULL, NULL, &fin_timeout);
+  int fin_retries = 0;
+  while(fin_retval < 1 && fin_retries < 5) { // No data received, check for timeout
+      fin_retries++;
+      gettimeofday(&current_time, NULL);
+      int timeDiff = getTimeDiff(fin_start_time, current_time);
+      if(timeDiff > 500000) {
+          fprintf(stderr, "FIN timeout detected!!!! fin_retries = %d\n", syn_retries);
+          break;
+      }
+      fin_timeout.tv_sec = 0;
+      fin_timeout.tv_usec = 100000;
+      fin_retval = select(sockfd+1, &rfds, NULL, NULL, &fin_timeout);
+  }
 
   // receive ACK or FIN_ACK
   n = recvfrom(sockfd, (char *)buffer, 525, 0, (struct sockaddr *) &servaddr, &len);

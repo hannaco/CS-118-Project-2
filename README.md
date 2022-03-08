@@ -40,4 +40,4 @@ https://www.geeksforgeeks.org/udp-server-client-implementation-c/
 https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
 https://www.geeksforgeeks.org/time-delay-c/
 https://stackoverflow.com/questions/7226603/timeout-function
-https://stackoverflow.com/questions/2808398/easily-measure-elapsed-time
+https://stackoverflow.com/questions/307596/time-difference-in-c
